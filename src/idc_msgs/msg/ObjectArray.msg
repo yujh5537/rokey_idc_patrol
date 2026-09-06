@@ -4,5 +4,5 @@
 # header.stamp 는 원본 이미지 stamp 를 그대로 승계할 것 (tf 시각 정합 — SR-F15)
 
 std_msgs/Header header
-string robot_id            # "robot1" | "robot2" — 네임스페이스와 동일 문자열
+string robot_id            # "robot5" | "robot2" — 네임스페이스와 동일 문자열 (v3 변경이력 #12)
 Object[] objects

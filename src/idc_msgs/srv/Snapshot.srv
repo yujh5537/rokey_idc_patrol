@@ -1,7 +1,9 @@
-# Snapshot.srv — 증적 이미지 + 메타를 서버에 저장하고 evidence_id 를 받는다
+# Snapshot.srv — 증적 이미지 + 메타를 저장하고 evidence_id 를 받는다
 # 서비스명: /server/snapshot   (SDD 4.2.2 — 필드는 SDD에 정의 없음, REP-02 신규 설계)
-# 서버: control_server(SRV-04, W)   클라이언트: mission_manager VERIFY(MIS-05, R3)
-# 관련 완료 기준: SRV-04 "이미지+메타 → evidence_id, 해시 기록"
+# 서버: PC3 ros2_mqtt_bridge의 snapshot_service.py (BRG-02, W) → POST /api/v1/evidence (PC4 FastAPI)
+#       ※ v3 변경이력 #8: ROS 서비스 인터페이스는 불변, 호출처만 PC3 브리지로 이동
+# 클라이언트: mission_manager VERIFY(MIS-05, R3)
+# 관련 완료 기준: SRV-04 "이미지+메타 → evidence_id, 해시 기록" / BRG-02 "snapshot → evidence_id 반환"
 
 std_msgs/Header header
 string robot_id

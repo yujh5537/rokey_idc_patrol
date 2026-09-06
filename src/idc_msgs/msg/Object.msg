@@ -2,9 +2,12 @@
 # 발행: detection_localizer(PER-04/05, A2) → ObjectArray에 담겨 나감
 # 소비: event_engine(EVT-01/02, A3), control_server(SRV-02, W)
 
-# YOLO 클래스명. DAT-01 data.yaml의 클래스명과 문자열이 정확히 일치해야 함.
-#   rack_door_open | rack_door_closed | person | obj_bag | obj_box
-# LED 상태는 led_classifier(PER-03, A1)가 rack 속성으로 병합 → led_green | led_red | led_off
+# class_name 허용값 (REP-02 확정 — data.yaml 클래스와 1:1이 아님)
+#   YOLO 2종 (DAT-01 data.yaml, 순서 고정):  0 rack_door_open | 1 rack_door_closed
+#   LED 판정 3종 (led_classifier PER-03, A1 — YOLO 아님, 마커 ROI HSV 2색 판정 결과):
+#       led_green | led_red | led_off
+#   ※ led_off 는 값으로 유지하되 E7 이벤트화하지 않음(로그·ROI 진단용) — PM 확정 9/6
+#   ※ PER-05에서 YOLO 결과와 LED 결과를 rack_id 기준으로 병합해 같은 배열에 실음
 string class_name
 
 int32 track_id                      # ByteTrack 트랙 ID. 미추적 시 -1

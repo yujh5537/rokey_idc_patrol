@@ -1,7 +1,9 @@
 # DockOrder.srv — 도킹 순서 요청, 미허가 시 대기 pose 응답 (순차 도킹)
 # 서비스명: /fleet/request_dock   (SDD 4.2.2 — 필드는 SDD에 정의 없음, REP-02 신규 설계)
 # 서버: fleet_coordinator(MIS-04, R3)   클라이언트: mission_manager RETURN 상태(MIS-03/06, R3)
-# 관련 완료 기준: MIS-04 "merge_done 브로드캐스트, DockOrder 응답" / MIS-06 "순차 도킹 3회"
+# 관련 완료 기준: MIS-04 "DockOrder 응답, 대기 pose 발행" / MIS-06 "순차 도킹 3회"
+#       ※ [v5] MIS-04의 merge_done 브로드캐스트는 삭제됨 — 지도는 사전 수동 SLAM(MAP-01) 병합본을
+#          로드하므로 런타임 병합 동기화가 없다. fleet_coordinator 책임은 분할선·도킹 순서·대기 pose.
 
 string robot_id
 float32 battery                     # 0.0~1.0. 낮은 쪽에 우선권
