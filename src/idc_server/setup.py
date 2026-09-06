@@ -17,7 +17,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'paho-mqtt'],
     zip_safe=True,
     maintainer='yujh5537',
     maintainer_email='yujh5537@users.noreply.github.com',
@@ -27,8 +27,9 @@ setup(
     entry_points={
         'console_scripts': [
             'control_server = idc_server.control_server:main',
-        'init_db = idc_server.init_db:main',
-        'audit = idc_server.audit:main'
+            'mqtt_bridge = idc_server.mqtt_bridge:main', # mqtt bridge
+            'init_db = idc_server.init_db:main',
+            'audit = idc_server.audit:main'
         ],
     },
 )
