@@ -6,12 +6,20 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-# STEP 2(REP-02)에서 msg/·srv/ 파일을 추가하고 아래 목록을 채움.
-# 골격 단계에서는 빈 목록이면 rosidl이 실패하므로 Ping.msg 하나만 임시 등록(REP-02에서 제거).
+# REP-02 확정 인터페이스 (SDD 4.2.3) — 양 팀 리뷰 승인 후 변경 금지
 set(msg_files
-  "msg/Ping.msg"
+  "msg/Object.msg"
+  "msg/ObjectArray.msg"
+  "msg/Marker.msg"
+  "msg/MarkerArray.msg"
+  "msg/Candidate.msg"
+  "msg/SecurityEvent.msg"
+  "msg/MissionState.msg"
 )
 set(srv_files
+  "srv/Snapshot.srv"
+  "srv/GenerateRoute.srv"
+  "srv/DockOrder.srv"
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
