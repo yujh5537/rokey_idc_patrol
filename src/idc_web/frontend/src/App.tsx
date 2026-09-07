@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import MapView, { type SecurityEvent, type ViewMode } from './components/MapView';
+import MapView, { type SecurityEvent } from './components/MapView';
 import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
+import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from './data/testbed';
 import type { MapMeta } from './lib/coordinates';
 import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
@@ -34,7 +35,6 @@ export default function App() {
   const [mapName, setMapName] = useState('MAP-DEMO');
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
-  const [viewMode, setViewMode] = useState<ViewMode>('portrait');
   const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
 
   useEffect(() => {
@@ -51,8 +51,8 @@ export default function App() {
       });
   }, []);
 
-  const sourceWidth = map?.width ?? 120;
-  const sourceHeight = map?.height ?? 180;
+  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
+  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
 
   const robots = useMemo<Robot[]>(() => {
     const positions = [
@@ -74,6 +74,8 @@ export default function App() {
   }, [meta, sourceHeight, sourceWidth]);
 
   const racks = useMemo<Rack[]>(() => {
+    // 현재 위치는 스타일 프리뷰용 mock이다.
+    // rack_coords_generalized.csv가 들어오면 pixel_x_frac / pixel_y_frac 기반으로 교체한다.
     const rowRatios = [0.24, 0.38, 0.62, 0.76];
 
     return rackSeed.map((rack, index) => {
@@ -190,8 +192,6 @@ export default function App() {
         <button onClick={loadDemo}>LOAD DEMO</button>
         <button onClick={triggerE5}>TRIGGER E5</button>
         <button onClick={() => setEvents([])}>CLEAR EVENTS</button>
-        <button className={`view-btn ${viewMode === 'portrait' ? 'active' : ''}`} onClick={() => setViewMode('portrait')}>PORTRAIT</button>
-        <button className={`view-btn ${viewMode === 'landscape' ? 'active' : ''}`} onClick={() => setViewMode('landscape')}>LANDSCAPE</button>
       </section>
 
       <main className="layout">
@@ -199,7 +199,6 @@ export default function App() {
           map={map}
           meta={meta}
           mapName={mapName}
-          viewMode={viewMode}
           robots={robots}
           racks={racks}
           events={events}
@@ -240,8 +239,10 @@ export default function App() {
             <div className="panel-title">MAP INTEGRITY</div>
             <div className="integrity-row"><span>Image</span><strong>{imageStatus}</strong></div>
             <div className="integrity-row"><span>YAML</span><strong>{yamlStatus}</strong></div>
-            <div className="integrity-row"><span>Coordinate</span><strong className="ok">VALID</strong></div>
-            <div className="integrity-row"><span>Overlay</span><strong className="ok">HIGH-DPI</strong></div>
+            <div className="integrity-row"><span>Canvas</span><strong className="ok">5700:3500 LOCKED</strong></div>
+            <div className="integrity-row"><span>AMR</span><strong>Ø {TESTBED_RENDER_SPEC.amrDiameterMm} mm</strong></div>
+            <div className="integrity-row"><span>Rack</span><strong>{TESTBED_RENDER_SPEC.rackWidthMm} × {TESTBED_RENDER_SPEC.rackHeightMm} mm</strong></div>
+            <div className="integrity-row"><span>Rack layout</span><strong>CSV PENDING</strong></div>
           </section>
         </aside>
       </main>

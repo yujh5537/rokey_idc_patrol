@@ -18,6 +18,7 @@ export interface Rack {
   x: number;
   y: number;
   state: RackState;
+  screenRotateDeg?: number;
   severity?: 2 | 3;
   updatedAt?: string;
 }
@@ -27,6 +28,8 @@ export const robots: Robot[] = [
   { id: 'robot11', label: 'AMR 11', state: 'IDLE', battery: 67, x: 5.7, y: -1.2, yaw: 2.25, zone: 'Z4' },
 ];
 
+// Frontend style-preview coordinates only.
+// The final 56-rack positions and rotations must come from rack_coords_generalized.csv.
 const rackCoords = [
   [-1.7, 2.7], [-0.8, 2.7], [0.1, 2.7], [1.0, 2.7], [1.9, 2.7], [2.8, 2.7], [3.7, 2.7],
   [-1.7, 1.8], [-0.8, 1.8], [0.1, 1.8], [1.0, 1.8], [1.9, 1.8], [2.8, 1.8], [3.7, 1.8],
@@ -37,9 +40,9 @@ const rackCoords = [
 export const racks: Rack[] = rackCoords.map(([x, y], index) => {
   const id = `R${String(index + 1).padStart(2, '0')}`;
   const zone = index < 7 ? 'Z1' : index < 14 ? 'Z2' : index < 21 ? 'Z3' : 'Z4';
-  if (id === 'R12') return { id, zone, x, y, state: 'DOOR_OPEN', severity: 3, updatedAt: '16:07:31' };
-  if (id === 'R27') return { id, zone, x, y, state: 'LED_RED', severity: 2, updatedAt: '16:09:04' };
-  return { id, zone, x, y, state: 'NORMAL' };
+  if (id === 'R12') return { id, zone, x, y, screenRotateDeg: 0, state: 'DOOR_OPEN', severity: 3, updatedAt: '16:07:31' };
+  if (id === 'R27') return { id, zone, x, y, screenRotateDeg: 0, state: 'LED_RED', severity: 2, updatedAt: '16:09:04' };
+  return { id, zone, x, y, screenRotateDeg: 0, state: 'NORMAL' };
 });
 
 export const alerts = racks.filter((rack) => rack.state !== 'NORMAL');

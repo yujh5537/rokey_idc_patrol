@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Rack, Robot } from '../data/mock';
+import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from '../data/testbed';
 import { worldToPercent, type MapMeta } from '../lib/coordinates';
 import type { PgmImage } from '../lib/pgm';
-
-export type ViewMode = 'portrait' | 'landscape';
 
 export interface SecurityEvent {
   id: string;
@@ -19,13 +17,15 @@ interface Props {
   map?: PgmImage;
   meta: MapMeta;
   mapName: string;
-  viewMode: ViewMode;
   robots: Robot[];
   racks: Rack[];
   events: SecurityEvent[];
 }
 
-const DEMO_SIZE = { width: 120, height: 180 };
+interface SurfaceSize {
+  width: number;
+  height: number;
+}
 
 function occupancyColor(value: number, maxValue: number, meta: MapMeta) {
   const normalized = Math.max(0, Math.min(1, value / maxValue));
@@ -42,36 +42,47 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
   ctx.fillStyle = '#04141f';
   ctx.fillRect(0, 0, width, height);
 
+  const left = width * 0.08;
+  const right = width * 0.92;
+  const top = height * 0.09;
+  const bottom = height * 0.91;
+  const wall = Math.max(4, width * 0.008);
+
   ctx.fillStyle = '#075b70';
-  ctx.fillRect(17, 18, 5, 144);
-  ctx.fillRect(98, 18, 5, 144);
-  ctx.fillRect(17, 18, 86, 5);
-  ctx.fillRect(17, 157, 86, 5);
+  ctx.fillRect(left, top, wall, bottom - top);
+  ctx.fillRect(right - wall, top, wall, bottom - top);
+  ctx.fillRect(left, top, right - left, wall);
+  ctx.fillRect(left, bottom - wall, right - left, wall);
 
   ctx.fillStyle = '#0d3542';
-  const rows = [42, 64, 108, 130];
-  rows.forEach((y) => {
-    for (let x = 30; x <= 82; x += 9) ctx.fillRect(x, y, 5, 11);
+  const rows = [0.26, 0.39, 0.61, 0.74];
+  rows.forEach((ratioY) => {
+    for (let ratioX = 0.24; ratioX <= 0.76; ratioX += 0.075) {
+      ctx.fillRect(width * ratioX, height * ratioY, width * 0.018, height * 0.065);
+    }
   });
 
   ctx.fillStyle = '#102c37';
-  ctx.fillRect(0, 0, width, 10);
-  ctx.fillRect(0, height - 10, width, 10);
+  ctx.fillRect(0, 0, width, height * 0.035);
+  ctx.fillRect(0, height * 0.965, width, height * 0.035);
 }
 
-function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta, rotated: boolean) {
-  const sourceWidth = map?.width ?? DEMO_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_SIZE.height;
-  const sourceCanvas = document.createElement('canvas');
-  sourceCanvas.width = sourceWidth;
-  sourceCanvas.height = sourceHeight;
-  const sourceCtx = sourceCanvas.getContext('2d');
-  if (!sourceCtx) return;
+function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta) {
+  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
+  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, sourceWidth, sourceHeight);
 
   if (!map) {
-    paintDemo(sourceCtx, sourceWidth, sourceHeight);
+    paintDemo(ctx, sourceWidth, sourceHeight);
   } else {
-    const image = sourceCtx.createImageData(sourceWidth, sourceHeight);
+    const image = ctx.createImageData(sourceWidth, sourceHeight);
     for (let i = 0; i < map.pixels.length; i += 1) {
       const color = occupancyColor(map.pixels[i], map.maxValue, meta);
       const offset = i * 4;
@@ -80,77 +91,119 @@ function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: Ma
       image.data[offset + 2] = Number.parseInt(color.slice(5, 7), 16);
       image.data[offset + 3] = 255;
     }
-    sourceCtx.putImageData(image, 0, 0);
-  }
-
-  canvas.width = rotated ? sourceHeight : sourceWidth;
-  canvas.height = rotated ? sourceWidth : sourceHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (rotated) {
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(sourceCanvas, 0, 0);
-    ctx.restore();
-  } else {
-    ctx.drawImage(sourceCanvas, 0, 0);
+    ctx.putImageData(image, 0, 0);
   }
 
   const gradient = ctx.createRadialGradient(
-    canvas.width / 2,
-    canvas.height / 2,
-    Math.min(canvas.width, canvas.height) * 0.08,
-    canvas.width / 2,
-    canvas.height / 2,
-    Math.max(canvas.width, canvas.height) * 0.72,
+    sourceWidth / 2,
+    sourceHeight / 2,
+    Math.min(sourceWidth, sourceHeight) * 0.08,
+    sourceWidth / 2,
+    sourceHeight / 2,
+    Math.max(sourceWidth, sourceHeight) * 0.72,
   );
   gradient.addColorStop(0, 'rgba(0, 220, 255, 0.03)');
   gradient.addColorStop(1, 'rgba(1, 8, 14, 0.35)');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, sourceWidth, sourceHeight);
 }
 
-function rotatePercent(position: { left: string; top: string }, rotated: boolean) {
-  if (!rotated) return position;
-  const x = Number.parseFloat(position.left);
-  const y = Number.parseFloat(position.top);
-  return { left: `${100 - y}%`, top: `${x}%` };
+function rackPalette(state: Rack['state']) {
+  if (state === 'DOOR_OPEN') {
+    return {
+      border: '#ff304f',
+      background: 'rgba(91,17,32,.92)',
+      glow: '0 0 18px rgba(255,48,79,.55)',
+      face: '#ff6b80',
+      label: '#ffd0d9',
+    };
+  }
+
+  if (state === 'LED_RED') {
+    return {
+      border: '#ffae52',
+      background: 'rgba(92,55,14,.92)',
+      glow: '0 0 18px rgba(255,174,82,.5)',
+      face: '#ffc173',
+      label: '#ffe1b0',
+    };
+  }
+
+  return {
+    border: 'rgba(83,163,186,.58)',
+    background: 'rgba(3,21,31,.9)',
+    glow: '0 0 8px rgba(0,219,255,.08)',
+    face: '#43ddff',
+    label: '#7db5c2',
+  };
 }
 
-export default function MapView({ map, meta, mapName, viewMode, robots, racks, events }: Props) {
+function containedSurfaceSize(containerWidth: number, containerHeight: number): SurfaceSize {
+  const gutter = 24;
+  const availableWidth = Math.max(0, containerWidth - gutter);
+  const availableHeight = Math.max(0, containerHeight - gutter);
+  const aspect = TESTBED_RENDER_SPEC.aspectRatio;
+
+  if (availableWidth === 0 || availableHeight === 0) return { width: 0, height: 0 };
+
+  if (availableWidth / availableHeight > aspect) {
+    const height = availableHeight;
+    return { width: height * aspect, height };
+  }
+
+  const width = availableWidth;
+  return { width, height: width / aspect };
+}
+
+export default function MapView({ map, meta, mapName, robots, racks, events }: Props) {
+  const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sourceWidth = map?.width ?? DEMO_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_SIZE.height;
-  const sourcePortrait = sourceHeight > sourceWidth;
-  const rotated = (viewMode === 'landscape' && sourcePortrait) || (viewMode === 'portrait' && !sourcePortrait);
+  const [surfaceSize, setSurfaceSize] = useState<SurfaceSize>({ width: 0, height: 0 });
+
+  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
+  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
 
   useEffect(() => {
-    if (canvasRef.current) paintMap(canvasRef.current, map, meta, rotated);
-  }, [map, meta, rotated]);
+    if (canvasRef.current) paintMap(canvasRef.current, map, meta);
+  }, [map, meta]);
+
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return undefined;
+
+    const updateSize = () => {
+      setSurfaceSize(containedSurfaceSize(element.clientWidth, element.clientHeight));
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
-    pos: rotatePercent(worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight), rotated),
-  })), [racks, meta, sourceWidth, sourceHeight, rotated]);
+    pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
+  })), [racks, meta, sourceWidth, sourceHeight]);
 
   const robotMarkers = useMemo(() => robots.map((robot) => ({
     robot,
-    pos: rotatePercent(worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight), rotated),
-  })), [robots, meta, sourceWidth, sourceHeight, rotated]);
+    pos: worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight),
+  })), [robots, meta, sourceWidth, sourceHeight]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
     if (!rack) return [];
     return [{
       event,
-      pos: rotatePercent(worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight), rotated),
+      pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
     }];
-  }), [events, racks, meta, sourceWidth, sourceHeight, rotated]);
+  }), [events, racks, meta, sourceWidth, sourceHeight]);
+
+  const amrDiameterPx = surfaceSize.width * TESTBED_RENDER_SPEC.amrDiameterFrac;
+  const rackWidthPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
+  const rackHeightPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackHeightFrac;
 
   return (
     <section className="map-card">
@@ -159,61 +212,178 @@ export default function MapView({ map, meta, mapName, viewMode, robots, racks, e
         <div>{mapName}</div>
       </div>
 
-      <div className={`map-stage ${viewMode}`}>
-        <canvas ref={canvasRef} className="map-canvas" />
-        <div className="grid-overlay" />
-        <div className="scan-line" />
-        <div className="corner tl" />
-        <div className="corner tr" />
-        <div className="corner bl" />
-        <div className="corner br" />
-        <div className="map-label label-top-left">SECTOR MONITORING</div>
-        <div className="map-label label-bottom-right">SECURE AREA</div>
-
-        {rackMarkers.map(({ rack, pos }) => (
+      <div
+        ref={stageRef}
+        className="map-stage"
+        style={{ display: 'grid', placeItems: 'center' }}
+      >
+        {surfaceSize.width > 0 && (
           <div
-            key={rack.id}
-            className={`rack-marker ${rack.state.toLowerCase()}`}
-            style={pos}
-            title={`${rack.id} · ${rack.state}`}
+            style={{
+              position: 'relative',
+              width: `${surfaceSize.width}px`,
+              height: `${surfaceSize.height}px`,
+              flex: '0 0 auto',
+              overflow: 'hidden',
+              background: '#031018',
+              border: '1px solid rgba(0,220,255,.16)',
+              boxShadow: '0 0 35px rgba(0,0,0,.32)',
+            }}
           >
-            {rack.id}
-          </div>
-        ))}
+            <canvas ref={canvasRef} className="map-canvas" />
+            <div className="grid-overlay" />
+            <div className="scan-line" />
+            <div className="corner tl" />
+            <div className="corner tr" />
+            <div className="corner bl" />
+            <div className="corner br" />
+            <div className="map-label label-top-left">SECTOR MONITORING</div>
+            <div className="map-label label-bottom-right">SECURE AREA</div>
 
-        {eventMarkers.map(({ event, pos }) => (
-          <div key={event.id} className={`event-marker l${event.severity}`} style={pos}>
-            <span className="event-triangle">!</span>
-            <div><strong>{event.type}</strong><small>{event.rackId}</small></div>
-          </div>
-        ))}
+            {rackMarkers.map(({ rack, pos }) => {
+              const palette = rackPalette(rack.state);
+              const rotation = rack.screenRotateDeg ?? 0;
 
-        {robotMarkers.map(({ robot, pos }) => {
-          const yaw = robot.yaw + (rotated ? Math.PI / 2 : 0);
-          return (
-            <div
-              key={robot.id}
-              className={`robot-marker ${robot.id}`}
-              style={{ ...pos, '--yaw': `${-yaw}rad` } as CSSProperties}
-            >
-              <div className="robot-radar" />
-              <div className="robot-body" />
-              <div className="robot-heading" />
-              <div className="robot-label">
-                <strong>{robot.id.toUpperCase()}</strong>
-                <small>{robot.state} · BAT {robot.battery}%</small>
+              return (
+                <div
+                  key={rack.id}
+                  className="rack-marker"
+                  style={{
+                    ...pos,
+                    minWidth: 0,
+                    width: 0,
+                    height: 0,
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    boxShadow: 'none',
+                    display: 'block',
+                  }}
+                  title={`${rack.id} · ${rack.state} · ${rotation}°`}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: `${rackWidthPx}px`,
+                      height: `${rackHeightPx}px`,
+                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                      transformOrigin: '50% 50%',
+                      border: `1px solid ${palette.border}`,
+                      borderRadius: '2px',
+                      background: palette.background,
+                      boxShadow: palette.glow,
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: '-2px',
+                        top: '18%',
+                        width: '3px',
+                        height: '64%',
+                        borderRadius: '2px',
+                        background: palette.face,
+                        boxShadow: `0 0 7px ${palette.face}`,
+                      }}
+                    />
+                  </div>
+
+                  <span
+                    style={{
+                      position: 'absolute',
+                      left: `${rackWidthPx / 2 + 5}px`,
+                      top: '-5px',
+                      color: palette.label,
+                      font: '700 7px monospace',
+                      whiteSpace: 'nowrap',
+                      textShadow: '0 0 4px #020910',
+                    }}
+                  >
+                    {rack.id}
+                  </span>
+                </div>
+              );
+            })}
+
+            {eventMarkers.map(({ event, pos }) => (
+              <div key={event.id} className={`event-marker l${event.severity}`} style={pos}>
+                <span className="event-triangle">!</span>
+                <div><strong>{event.type}</strong><small>{event.rackId}</small></div>
               </div>
+            ))}
+
+            {robotMarkers.map(({ robot, pos }) => {
+              const radarSize = amrDiameterPx * 1.55;
+              const headingLength = amrDiameterPx * 0.95;
+
+              return (
+                <div
+                  key={robot.id}
+                  className={`robot-marker ${robot.id}`}
+                  style={{ ...pos, width: 0, height: 0 }}
+                >
+                  <div
+                    className="robot-radar"
+                    style={{
+                      left: `${-radarSize / 2}px`,
+                      top: `${-radarSize / 2}px`,
+                      width: `${radarSize}px`,
+                      height: `${radarSize}px`,
+                    }}
+                  />
+                  <div
+                    className="robot-body"
+                    style={{
+                      left: `${-amrDiameterPx / 2}px`,
+                      top: `${-amrDiameterPx / 2}px`,
+                      width: `${amrDiameterPx}px`,
+                      height: `${amrDiameterPx}px`,
+                    }}
+                  />
+                  <div
+                    className="robot-heading"
+                    style={{
+                      left: 0,
+                      top: '-1.5px',
+                      width: `${headingLength}px`,
+                      height: '3px',
+                      transform: `rotate(${-robot.yaw}rad)`,
+                      transformOrigin: '0 50%',
+                    }}
+                  />
+                  <div
+                    className="robot-label"
+                    style={{
+                      left: `${amrDiameterPx / 2 + 10}px`,
+                      top: `${-amrDiameterPx / 2 - 6}px`,
+                    }}
+                  >
+                    <strong>{robot.id.toUpperCase()}</strong>
+                    <small>{robot.state} · BAT {robot.battery}%</small>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div
+              className="map-label"
+              style={{ left: '22px', bottom: '22px', top: 'auto' }}
+            >
+              SCALE LOCK · {TESTBED_RENDER_SPEC.lengthMm} × {TESTBED_RENDER_SPEC.widthMm} mm
             </div>
-          );
-        })}
+          </div>
+        )}
       </div>
 
       <div className="map-footer">
         <span>RES <strong>{meta.resolution} m/px</strong></span>
         <span>ORIGIN <strong>{meta.origin[0].toFixed(3)}, {meta.origin[1].toFixed(3)}</strong></span>
-        <span>ROBOTS <strong>{robots.length}</strong></span>
+        <span>CANVAS <strong>{TESTBED_RENDER_SPEC.lengthMm}:{TESTBED_RENDER_SPEC.widthMm}</strong></span>
+        <span>AMR <strong>Ø{TESTBED_RENDER_SPEC.amrDiameterMm}mm</strong></span>
+        <span>RACK <strong>{TESTBED_RENDER_SPEC.rackWidthMm}×{TESTBED_RENDER_SPEC.rackHeightMm}mm</strong></span>
         <span>EVENTS <strong>{events.length}</strong></span>
-        <span>VIEW <strong>{viewMode.toUpperCase()}</strong></span>
       </div>
     </section>
   );
