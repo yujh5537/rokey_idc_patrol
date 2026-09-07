@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from datetime import datetime, timezone
 import json
 import math
 
@@ -8,6 +9,25 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState
+
+
+def _finite_or_none(value, digits=None):
+    """Return a finite JSON-safe float, otherwise None."""
+    value = float(value)
+    if not math.isfinite(value):
+        return None
+    if digits is not None:
+        return round(value, digits)
+    return value
+
+
+def _received_at_utc():
+    """PC3 bridge receive time in UTC ISO-8601 with millisecond precision."""
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec='milliseconds')
+        .replace('+00:00', 'Z')
+    )
 
 
 class MqttBridge(Node):
@@ -81,32 +101,44 @@ class MqttBridge(Node):
         )
 
     def battery_callback(self, msg: BatteryState):
-        # ROS BatteryState percentage는 0.0 ~ 1.0
-        if math.isfinite(msg.percentage) and msg.percentage >= 0.0:
-            battery_percent = round(float(msg.percentage) * 100.0, 1)
+        # FROZEN v1.0 §4.1: BatteryState percentage 정본은 0.0 ~ 1.0.
+        raw_percentage = float(msg.percentage)
+        if math.isfinite(raw_percentage) and 0.0 <= raw_percentage <= 1.0:
+            percentage = raw_percentage
+            battery_percent = round(percentage * 100.0, 1)
         else:
+            percentage = None
             battery_percent = None
 
+        # docs/mqtt_interface_v1.md §2, §3, §4.1 계약을 그대로 따른다.
         payload = {
+            'schema_version': '1.0',
             'robot_id': self.robot_id,
             'battery_percent': battery_percent,
-            'voltage': round(float(msg.voltage), 3),
-            'temperature': round(float(msg.temperature), 2),
+            'percentage': percentage,
+            'voltage': _finite_or_none(msg.voltage, 3),
+            'temperature': _finite_or_none(msg.temperature, 2),
             'present': bool(msg.present),
             'stamp': {
                 'sec': msg.header.stamp.sec,
                 'nanosec': msg.header.stamp.nanosec,
             },
+            'received_at': _received_at_utc(),
         }
 
+        # FROZEN common JSON rule: NaN/Inf를 JSON 숫자로 내보내지 않는다.
         payload_json = json.dumps(
             payload,
-            ensure_ascii=False
+            ensure_ascii=False,
+            allow_nan=False,
         )
 
+        # FROZEN topic contract: battery QoS 1, retain false.
         result = self.mqtt_client.publish(
             self.mqtt_battery_topic,
-            payload_json
+            payload_json,
+            qos=1,
+            retain=False,
         )
 
         if result.rc == mqtt.MQTT_ERR_SUCCESS:
