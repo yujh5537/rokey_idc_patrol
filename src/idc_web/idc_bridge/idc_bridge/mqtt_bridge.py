@@ -71,6 +71,10 @@ class MqttBridge(Node):
         self.ros_battery_topic = f'/{self.robot_id}/battery_state'
         self.mqtt_battery_topic = f'idc/{self.robot_id}/battery'
 
+        # 최신 ROS BatteryState를 MQTT 1 Hz로 재전송하기 위한 캐시.
+        # received_at/stamp는 새 ROS 메시지를 받은 시점의 값을 그대로 보존한다.
+        self.latest_battery_payload = None
+
         # MQTT Client
         self.mqtt_client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -93,11 +97,19 @@ class MqttBridge(Node):
             qos_profile_sensor_data
         )
 
+        # FROZEN MQTT Interface v1 §3: battery publish rate >= 1 Hz.
+        # 로봇 BatteryState source가 더 느려도 최신 값을 1 Hz로 전달하고,
+        # freshness 판단은 보존된 received_at/stamp로 수행한다.
+        self.battery_publish_timer = self.create_timer(
+            1.0,
+            self.publish_battery,
+        )
+
         self.get_logger().info(
             f'ROS2 → MQTT Bridge started: '
             f'{self.ros_battery_topic} → '
             f'{self.mqtt_battery_topic} → '
-            f'{broker_host}:{broker_port}'
+            f'{broker_host}:{broker_port} (battery publish: 1 Hz)'
         )
 
     def battery_callback(self, msg: BatteryState):
@@ -111,7 +123,8 @@ class MqttBridge(Node):
             battery_percent = None
 
         # docs/mqtt_interface_v1.md §2, §3, §4.1 계약을 그대로 따른다.
-        payload = {
+        # received_at은 ROS 메시지를 PC3 bridge가 실제로 받은 시각이다.
+        self.latest_battery_payload = {
             'schema_version': '1.0',
             'robot_id': self.robot_id,
             'battery_percent': battery_percent,
@@ -126,14 +139,18 @@ class MqttBridge(Node):
             'received_at': _received_at_utc(),
         }
 
+    def publish_battery(self):
+        if self.latest_battery_payload is None:
+            return
+
         # FROZEN common JSON rule: NaN/Inf를 JSON 숫자로 내보내지 않는다.
         payload_json = json.dumps(
-            payload,
+            self.latest_battery_payload,
             ensure_ascii=False,
             allow_nan=False,
         )
 
-        # FROZEN topic contract: battery QoS 1, retain false.
+        # FROZEN topic contract: battery QoS 1, retain false, rate >= 1 Hz.
         result = self.mqtt_client.publish(
             self.mqtt_battery_topic,
             payload_json,
@@ -141,6 +158,7 @@ class MqttBridge(Node):
             retain=False,
         )
 
+        battery_percent = self.latest_battery_payload['battery_percent']
         if result.rc == mqtt.MQTT_ERR_SUCCESS:
             self.get_logger().info(
                 f'published {self.mqtt_battery_topic}: '
