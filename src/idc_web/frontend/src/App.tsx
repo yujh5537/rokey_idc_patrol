@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import MapView, { type SecurityEvent } from './components/MapView';
-import { racks as rackSeed, type Rack, type Robot } from './data/mock';
-import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from './data/testbed';
-import { fetchRacks, fetchRobots } from './lib/api';
+import { rackLayout } from './data/rackLayout';
+import { type Rack, type Robot } from './data/mock';
+import { TESTBED_RENDER_SPEC } from './data/testbed';
+import { fetchRacks, fetchRobots, type RackApiRecord } from './lib/api';
 import type { MapMeta } from './lib/coordinates';
 import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
@@ -36,7 +37,7 @@ export default function App() {
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
   const [robots, setRobots] = useState<Robot[]>([]);
-  const [liveRacks, setLiveRacks] = useState<Rack[]>([]);
+  const [rackRows, setRackRows] = useState<RackApiRecord[]>([]);
   const [apiStatus, setApiStatus] = useState<'CONNECTING' | 'LIVE' | 'OFFLINE'>('CONNECTING');
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export default function App() {
       controller = new AbortController();
 
       try {
-        const [robotRows, rackRows] = await Promise.all([
+        const [robotRows, nextRackRows] = await Promise.all([
           fetchRobots(controller.signal),
           fetchRacks(controller.signal),
         ]);
@@ -80,21 +81,7 @@ export default function App() {
           zone: '',
           lastSeen: row.last_seen,
         })));
-
-        setLiveRacks(rackRows.flatMap((row) => {
-          if (row.x === null || row.y === null) return [];
-          return [{
-            id: row.rack_id,
-            zone: row.zone_id ?? '',
-            x: row.x,
-            y: row.y,
-            state: row.state,
-            screenRotateDeg: row.yaw === null ? 0 : row.yaw * 180 / Math.PI,
-            severity: row.severity === 3 ? 3 : row.severity === 2 ? 2 : undefined,
-            updatedAt: row.updated_at ?? undefined,
-          } satisfies Rack];
-        }));
-
+        setRackRows(nextRackRows);
         setApiStatus('LIVE');
       } catch (error) {
         if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
@@ -113,8 +100,29 @@ export default function App() {
     };
   }, []);
 
-  const racks = liveRacks.length > 0 ? liveRacks : rackSeed;
-  const usingRackFallback = liveRacks.length === 0;
+  const rackStatusById = useMemo(
+    () => new Map(rackRows.map((row) => [row.rack_id, row])),
+    [rackRows],
+  );
+
+  const racks = useMemo<Rack[]>(() => rackLayout.map((layout) => {
+    const live = rackStatusById.get(layout.rackId);
+    const severity = live?.severity === 3 ? 3 : live?.severity === 2 ? 2 : undefined;
+
+    return {
+      id: layout.rackId,
+      arucoId: layout.arucoId,
+      zone: live?.zone_id ?? '',
+      x: layout.xM,
+      y: layout.yM,
+      state: live?.state ?? 'NORMAL',
+      screenXFrac: layout.screenXFrac,
+      screenYFrac: layout.screenYFrac,
+      screenRotateDeg: layout.screenRotateDeg,
+      severity,
+      updatedAt: live?.updated_at ?? undefined,
+    };
+  }), [rackStatusById]);
 
   const events = useMemo<SecurityEvent[]>(() => racks.flatMap((rack) => {
     if (rack.state === 'NORMAL') return [];
@@ -259,7 +267,8 @@ export default function App() {
             <div className="integrity-row"><span>Backend API</span><strong>{apiStatus}</strong></div>
             <div className="integrity-row"><span>Robots</span><strong>{robots.length}</strong></div>
             <div className="integrity-row"><span>Racks</span><strong>{racks.length}</strong></div>
-            <div className="integrity-row"><span>Rack source</span><strong>{usingRackFallback ? 'TEMP MOCK' : 'BACKEND'}</strong></div>
+            <div className="integrity-row"><span>Rack layout</span><strong>CSV · 56</strong></div>
+            <div className="integrity-row"><span>Rack status</span><strong>{rackRows.length > 0 ? 'BACKEND' : 'NORMAL DEFAULT'}</strong></div>
             <div className="integrity-row"><span>Map image</span><strong>{imageStatus}</strong></div>
             <div className="integrity-row"><span>Map YAML</span><strong>{yamlStatus}</strong></div>
             <div className="integrity-row"><span>AMR</span><strong>Ø {TESTBED_RENDER_SPEC.amrDiameterMm} mm</strong></div>
