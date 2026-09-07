@@ -1,5 +1,5 @@
 -- IDC Patrol PostgreSQL Schema
--- Generated from SQLAlchemy models
+-- SRV-01 physical schema aligned with SDD v1.2 logical model
 
 CREATE TABLE audit_log (
 	id SERIAL NOT NULL,
@@ -63,8 +63,7 @@ CREATE TABLE auth_events (
 	person_id INTEGER,
 	door_id VARCHAR(100),
 	ts TIMESTAMP WITH TIME ZONE,
-	PRIMARY KEY (id),
-	FOREIGN KEY(person_id) REFERENCES persons (id)
+	PRIMARY KEY (id)
 );
 
 CREATE TABLE racks (
@@ -94,7 +93,8 @@ CREATE TABLE waypoints (
 	result VARCHAR(100),
 	PRIMARY KEY (id),
 	FOREIGN KEY(run_id) REFERENCES patrol_runs (id),
-	FOREIGN KEY(robot_id) REFERENCES robots (id)
+	FOREIGN KEY(robot_id) REFERENCES robots (id),
+	FOREIGN KEY(rack_id) REFERENCES racks (id)
 );
 
 CREATE TABLE events (
@@ -132,7 +132,5 @@ CREATE TABLE evidence (
 	y FLOAT,
 	yaw FLOAT,
 	PRIMARY KEY (id),
-	FOREIGN KEY(event_id) REFERENCES events (id),
-	FOREIGN KEY(robot_id) REFERENCES robots (id)
+	FOREIGN KEY(event_id) REFERENCES events (id)
 );
-
