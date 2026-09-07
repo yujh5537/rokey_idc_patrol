@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import MapView, { type SecurityEvent } from './components/MapView';
-import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
+import { racks as rackSeed, type Rack, type Robot } from './data/mock';
 import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from './data/testbed';
+import { fetchRacks, fetchRobots } from './lib/api';
 import type { MapMeta } from './lib/coordinates';
 import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
@@ -13,20 +14,19 @@ const DEFAULT_META: MapMeta = {
   freeThresh: 0.196,
 };
 
-const INITIAL_EVENTS: SecurityEvent[] = [
-  { id: 'evt-r12', type: 'E5', label: 'DOOR OPEN', rackId: 'R12', severity: 3, time: '16:07:31' },
-  { id: 'evt-r27', type: 'E7', label: 'LED RED', rackId: 'R27', severity: 2, time: '16:09:04' },
-];
-
 function sanitizeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
 }
 
-function ratioToWorld(ratioX: number, ratioY: number, meta: MapMeta, width: number, height: number) {
-  return {
-    x: meta.origin[0] + width * ratioX * meta.resolution,
-    y: meta.origin[1] + (height - height * ratioY) * meta.resolution,
-  };
+function formatRackTime(value?: string) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString();
+}
+
+function formatNumber(value: number | null) {
+  return value === null ? '--' : value.toFixed(2);
 }
 
 export default function App() {
@@ -35,7 +35,9 @@ export default function App() {
   const [mapName, setMapName] = useState('MAP-DEMO');
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
-  const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
+  const [robots, setRobots] = useState<Robot[]>([]);
+  const [liveRacks, setLiveRacks] = useState<Rack[]>([]);
+  const [apiStatus, setApiStatus] = useState<'CONNECTING' | 'LIVE' | 'OFFLINE'>('CONNECTING');
 
   useEffect(() => {
     loadSlamMap('/maps/map')
@@ -47,59 +49,88 @@ export default function App() {
         setYamlStatus('VALID');
       })
       .catch(() => {
-        // public/maps/map.pgm + map.yaml이 없으면 DEMO 화면을 유지한다.
+        // Map asset is delivered by the map/SLAM workstream. Keep the demo surface until then.
       });
   }, []);
 
-  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
+  useEffect(() => {
+    let disposed = false;
+    let controller: AbortController | undefined;
 
-  const robots = useMemo<Robot[]>(() => {
-    const positions = [
-      { x: 0.35, y: 0.65 },
-      { x: 0.68, y: 0.72 },
-    ];
+    const poll = async () => {
+      controller?.abort();
+      controller = new AbortController();
 
-    return robotSeed.map((robot, index) => {
-      const world = ratioToWorld(
-        positions[index]?.x ?? 0.5,
-        positions[index]?.y ?? 0.5,
-        meta,
-        sourceWidth,
-        sourceHeight,
-      );
+      try {
+        const [robotRows, rackRows] = await Promise.all([
+          fetchRobots(controller.signal),
+          fetchRacks(controller.signal),
+        ]);
 
-      return { ...robot, x: world.x, y: world.y };
-    });
-  }, [meta, sourceHeight, sourceWidth]);
+        if (disposed) return;
 
-  const racks = useMemo<Rack[]>(() => {
-    // 현재 위치는 스타일 프리뷰용 mock이다.
-    // rack_coords_generalized.csv가 들어오면 pixel_x_frac / pixel_y_frac 기반으로 교체한다.
-    const rowRatios = [0.24, 0.38, 0.62, 0.76];
+        setRobots(robotRows.map((row) => ({
+          id: row.robot_id,
+          label: row.name ?? row.robot_id,
+          state: row.state ?? 'UNKNOWN',
+          battery: row.battery_percent,
+          x: row.x,
+          y: row.y,
+          yaw: row.yaw,
+          zone: '',
+          lastSeen: row.last_seen,
+        })));
 
-    return rackSeed.map((rack, index) => {
-      const row = Math.floor(index / 7);
-      const col = index % 7;
-      const world = ratioToWorld(
-        0.25 + col * 0.083,
-        rowRatios[row] ?? 0.5,
-        meta,
-        sourceWidth,
-        sourceHeight,
-      );
-      const event = events.find((item) => item.rackId === rack.id);
+        setLiveRacks(rackRows.flatMap((row) => {
+          if (row.x === null || row.y === null) return [];
+          return [{
+            id: row.rack_id,
+            zone: row.zone_id ?? '',
+            x: row.x,
+            y: row.y,
+            state: row.state,
+            screenRotateDeg: row.yaw === null ? 0 : row.yaw * 180 / Math.PI,
+            severity: row.severity === 3 ? 3 : row.severity === 2 ? 2 : undefined,
+            updatedAt: row.updated_at ?? undefined,
+          } satisfies Rack];
+        }));
 
-      return {
-        ...rack,
-        x: world.x,
-        y: world.y,
-        state: event?.type === 'E5' ? 'DOOR_OPEN' : event?.type === 'E7' ? 'LED_RED' : 'NORMAL',
-        severity: event?.severity,
-        updatedAt: event?.time,
-      };
-    });
-  }, [events, meta, sourceHeight, sourceWidth]);
+        setApiStatus('LIVE');
+      } catch (error) {
+        if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+        console.error('Live API poll failed', error);
+        setApiStatus('OFFLINE');
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const racks = liveRacks.length > 0 ? liveRacks : rackSeed;
+  const usingRackFallback = liveRacks.length === 0;
+
+  const events = useMemo<SecurityEvent[]>(() => racks.flatMap((rack) => {
+    if (rack.state === 'NORMAL') return [];
+
+    const type = rack.state === 'DOOR_OPEN' ? 'E5' : 'E7';
+    const severity: 2 | 3 = rack.severity ?? (type === 'E5' ? 3 : 2);
+
+    return [{
+      id: `${type}-${rack.id}`,
+      type,
+      label: type === 'E5' ? 'DOOR OPEN' : 'LED RED',
+      rackId: rack.id,
+      severity,
+      time: formatRackTime(rack.updatedAt),
+    }];
+  }), [racks]);
 
   const handleMapImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -150,24 +181,6 @@ export default function App() {
     setMapName('MAP-DEMO');
     setImageStatus('DEMO');
     setYamlStatus('DEFAULT');
-    setEvents(INITIAL_EVENTS);
-  };
-
-  const triggerE5 = () => {
-    setEvents((current) => {
-      if (current.some((event) => event.rackId === 'R03' && event.type === 'E5')) return current;
-      return [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          type: 'E5',
-          label: 'DOOR OPEN',
-          rackId: 'R03',
-          severity: 3,
-          time: new Date().toLocaleTimeString(),
-        },
-      ];
-    });
   };
 
   return (
@@ -177,7 +190,7 @@ export default function App() {
           <div className="eyebrow">IDC SECURITY CONTROL</div>
           <h1>Patrol Map Renderer</h1>
         </div>
-        <div className="live-badge"><span className="live-dot" />LIVE</div>
+        <div className="live-badge"><span className="live-dot" />{apiStatus}</div>
       </header>
 
       <section className="toolbar">
@@ -190,8 +203,6 @@ export default function App() {
           <input type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={handleMapYaml} />
         </label>
         <button onClick={loadDemo}>LOAD DEMO</button>
-        <button onClick={triggerE5}>TRIGGER E5</button>
-        <button onClick={() => setEvents([])}>CLEAR EVENTS</button>
       </section>
 
       <main className="layout">
@@ -207,23 +218,31 @@ export default function App() {
         <aside className="side-panel">
           <section className="panel">
             <div className="panel-title">ROBOT STATUS</div>
-            {robots.map((robot) => (
-              <div className="robot-card" key={robot.id}>
-                <div className="robot-name">
-                  <strong className={robot.id}>{robot.id}</strong>
-                  <strong className={robot.id}>{robot.state}</strong>
+            {robots.length === 0 ? (
+              <div className="empty">NO ROBOT TELEMETRY</div>
+            ) : (
+              robots.map((robot) => (
+                <div className="robot-card" key={robot.id}>
+                  <div className="robot-name">
+                    <strong className={robot.id}>{robot.id}</strong>
+                    <strong className={robot.id}>{robot.state}</strong>
+                  </div>
+                  <div className="robot-info">
+                    <span>BATTERY</span>
+                    <span>{robot.battery === null ? '--' : `${robot.battery.toFixed(1)}%`}</span>
+                  </div>
+                  <div className="robot-info"><span>X</span><span>{formatNumber(robot.x)}</span></div>
+                  <div className="robot-info"><span>Y</span><span>{formatNumber(robot.y)}</span></div>
+                  <div className="robot-info"><span>YAW</span><span>{formatNumber(robot.yaw)}</span></div>
                 </div>
-                <div className="robot-info"><span>BATTERY</span><span>{robot.battery}%</span></div>
-                <div className="robot-info"><span>X</span><span>{robot.x.toFixed(2)}</span></div>
-                <div className="robot-info"><span>Y</span><span>{robot.y.toFixed(2)}</span></div>
-              </div>
-            ))}
+              ))
+            )}
           </section>
 
           <section className="panel">
-            <div className="panel-title">SECURITY EVENTS</div>
+            <div className="panel-title">RACK STATUS</div>
             {events.length === 0 ? (
-              <div className="empty">NO ACTIVE EVENTS</div>
+              <div className="empty">ALL RACKS NORMAL</div>
             ) : (
               events.map((event) => (
                 <div className={`event-card l${event.severity}`} key={event.id}>
@@ -236,13 +255,14 @@ export default function App() {
           </section>
 
           <section className="panel">
-            <div className="panel-title">MAP INTEGRITY</div>
-            <div className="integrity-row"><span>Image</span><strong>{imageStatus}</strong></div>
-            <div className="integrity-row"><span>YAML</span><strong>{yamlStatus}</strong></div>
-            <div className="integrity-row"><span>Canvas</span><strong className="ok">5700:3500 LOCKED</strong></div>
+            <div className="panel-title">DATA STATUS</div>
+            <div className="integrity-row"><span>Backend API</span><strong>{apiStatus}</strong></div>
+            <div className="integrity-row"><span>Robots</span><strong>{robots.length}</strong></div>
+            <div className="integrity-row"><span>Racks</span><strong>{racks.length}</strong></div>
+            <div className="integrity-row"><span>Rack source</span><strong>{usingRackFallback ? 'TEMP MOCK' : 'BACKEND'}</strong></div>
+            <div className="integrity-row"><span>Map image</span><strong>{imageStatus}</strong></div>
+            <div className="integrity-row"><span>Map YAML</span><strong>{yamlStatus}</strong></div>
             <div className="integrity-row"><span>AMR</span><strong>Ø {TESTBED_RENDER_SPEC.amrDiameterMm} mm</strong></div>
-            <div className="integrity-row"><span>Rack</span><strong>{TESTBED_RENDER_SPEC.rackWidthMm} × {TESTBED_RENDER_SPEC.rackHeightMm} mm</strong></div>
-            <div className="integrity-row"><span>Rack layout</span><strong>CSV PENDING</strong></div>
           </section>
         </aside>
       </main>
