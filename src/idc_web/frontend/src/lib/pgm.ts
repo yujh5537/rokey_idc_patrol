@@ -53,7 +53,14 @@ export function parsePgm(buffer: ArrayBuffer): PgmImage {
     return { width, height, pixels, maxValue: 255 };
   }
 
-  while (cursor.value < bytes.length && isWhitespace(bytes[cursor.value])) cursor.value += 1;
+  if (bytes[cursor.value] === 13 && bytes[cursor.value + 1] === 10) {
+    cursor.value += 2;
+  } else if (isWhitespace(bytes[cursor.value])) {
+    cursor.value += 1;
+  } else {
+    throw new Error('Invalid PGM header delimiter.');
+  }
+
   const raw = bytes.slice(cursor.value, cursor.value + width * height);
   if (raw.length !== width * height) throw new Error('PGM pixel data is incomplete.');
   return { width, height, pixels: raw, maxValue };
