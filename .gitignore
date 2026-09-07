@@ -28,3 +28,6 @@ secrets*/
 # IDE
 .vscode/
 .idea/
+
+# TypeScript build cache
+*.tsbuildinfo
