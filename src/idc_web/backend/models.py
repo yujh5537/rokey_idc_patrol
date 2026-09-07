@@ -144,7 +144,7 @@ class Waypoint(Base):
     )
 
     rack_id: Mapped[str | None] = mapped_column(
-        String(16),
+        ForeignKey("racks.id"),
         nullable=True,
     )
 
@@ -314,7 +314,7 @@ class AuthEvent(Base):
     )
 
     person_id: Mapped[int | None] = mapped_column(
-        ForeignKey("persons.id"),
+        Integer,
         nullable=True,
     )
 
@@ -432,7 +432,7 @@ class Evidence(Base):
     )
 
     robot_id: Mapped[str | None] = mapped_column(
-        ForeignKey("robots.id"),
+        String(64),
         nullable=True,
     )
 
