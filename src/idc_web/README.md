@@ -1,18 +1,42 @@
 # idc_web
 
-PC4 Web/Data Plane workspace.
+W-owned control/web workspace. The source tree is kept together under `idc_web`, while deployment remains split according to ADR-001.
 
 ## Structure
 
 ```text
 idc_web/
-├── backend/   # FastAPI + PostgreSQL + MQTT
-└── frontend/  # React + Vite
+├── idc_bridge/  # ROS 2 ament_python package; runs on PC3
+├── backend/     # FastAPI + PostgreSQL + MQTT; runs on PC4
+└── frontend/    # React + Vite; runs on PC4
 ```
 
-`COLCON_IGNORE` keeps this Web workspace out of ROS 2 colcon builds.
+`src/idc_web/COLCON_IGNORE` is intentionally not used because colcon must discover the nested `idc_bridge` package. `backend/COLCON_IGNORE` and `frontend/COLCON_IGNORE` keep the Web-only trees out of colcon package discovery.
 
-## Backend
+The repository location does not change the deployment boundary: `idc_bridge` participates in ROS 2 on PC3, while PC4 remains ROS-free.
+
+## ROS ↔ MQTT bridge (PC3)
+
+Build and verify discovery from the workspace root:
+
+```bash
+colcon list | grep idc_bridge
+colcon build --symlink-install --packages-select idc_bridge
+source install/setup.bash
+```
+
+Run the existing battery bridge for a robot namespace:
+
+```bash
+ros2 run idc_bridge mqtt_bridge --ros-args \
+  -p robot_namespace:=/robot5 \
+  -p mqtt_broker_host:=192.168.107.124 \
+  -p mqtt_broker_port:=1883
+```
+
+The current migrated bridge preserves the previous `idc_server/mqtt_bridge.py` battery path. BRG-01 pose/state/event/command expansion is handled as the next bridge integration work; this migration only restores the ROS↔MQTT package boundary removed with `idc_server`.
+
+## Backend (PC4)
 
 Create the local environment under `backend/`:
 
@@ -32,12 +56,10 @@ source backend/.venv/bin/activate
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Frontend
+## Frontend (PC4)
 
 ```bash
 cd src/idc_web/frontend
 npm install
 npm run dev -- --host 0.0.0.0
 ```
-
-The frontend is currently only the React/Vite bootstrap. Application screens and API bindings are added after the DB/API contract is finalized.
