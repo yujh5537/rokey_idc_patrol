@@ -1,6 +1,6 @@
 # MQTT Interface v1 — IDC Patrol Control/Web Boundary
 
-> Status: **DRAFT — P·R1·R3·A3 review required before Freeze**  
+> Status: **FROZEN v1.0**  
 > Owner: W (Control Server / Web UI / ROS↔Web boundary)  
 > Date: 2026-09-06  
 > Related task: SRV-00  

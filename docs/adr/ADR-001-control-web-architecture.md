@@ -1,6 +1,6 @@
 # ADR-001 — Split ROS Control and Web Control Planes
 
-- Status: **PROPOSED — pending P·R1·R3·A3 review**
+- Status: **ACCEPTED**
 - Date: 2026-09-06
 - Owner: W
 - Related task: SRV-00
