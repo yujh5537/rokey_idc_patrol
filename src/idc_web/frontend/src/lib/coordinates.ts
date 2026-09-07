@@ -1,6 +1,9 @@
 export interface MapMeta {
   resolution: number;
   origin: [number, number, number];
+  negate?: number;
+  occupiedThresh?: number;
+  freeThresh?: number;
 }
 
 export function worldToPercent(

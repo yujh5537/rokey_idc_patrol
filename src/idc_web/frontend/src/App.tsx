@@ -1,64 +1,236 @@
-import { Activity, AlertTriangle, Battery, Bot, Building2, Clock3, Radio, ShieldCheck } from 'lucide-react';
-import MapView from './components/MapView';
-import { alerts, racks, robots } from './data/mock';
+import { useMemo, useState, type ChangeEvent } from 'react';
+import MapView, { type SecurityEvent, type ViewMode } from './components/MapView';
+import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
+import type { MapMeta } from './lib/coordinates';
+import { parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
-function RobotCard({ robot }: { robot: (typeof robots)[number] }) {
-  return (
-    <article className="robot-card">
-      <div className="robot-card-head">
-        <div className={`robot-icon ${robot.id}`}><Bot size={18} /></div>
-        <div><strong>{robot.label}</strong><small>/{robot.id}</small></div>
-        <span className="online-dot" />
-      </div>
-      <div className="robot-state"><span className={`state-pill ${robot.state.toLowerCase()}`}>{robot.state}</span><span>{robot.zone}</span></div>
-      <div className="battery-row"><Battery size={15} /><div className="battery-track"><i style={{ width: `${robot.battery}%` }} /></div><b>{robot.battery}%</b></div>
-      <div className="coords">x {robot.x.toFixed(2)} <span>y {robot.y.toFixed(2)}</span></div>
-    </article>
-  );
+const DEFAULT_META: MapMeta = {
+  resolution: 0.05,
+  origin: [-3.384, -4.489, 0],
+  negate: 0,
+  occupiedThresh: 0.65,
+  freeThresh: 0.196,
+};
+
+const INITIAL_EVENTS: SecurityEvent[] = [
+  { id: 'evt-r12', type: 'E5', label: 'DOOR OPEN', rackId: 'R12', severity: 3, time: '16:07:31' },
+  { id: 'evt-r27', type: 'E7', label: 'LED RED', rackId: 'R27', severity: 2, time: '16:09:04' },
+];
+
+function sanitizeName(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
 }
 
-function AlertCard({ alert }: { alert: (typeof alerts)[number] }) {
-  const isL3 = alert.severity === 3;
-  return (
-    <article className={`alert-card ${isL3 ? 'l3' : 'l2'}`}>
-      <div className="alert-top"><span className="severity">L{alert.severity}</span><time>{alert.updatedAt}</time></div>
-      <div className="alert-title"><AlertTriangle size={17} /><strong>{alert.id}</strong><span>· {alert.zone}</span></div>
-      <p>{alert.state === 'DOOR_OPEN' ? 'Rack door opened' : 'LED status anomaly'}</p>
-      <button>OPEN EVENT</button>
-    </article>
-  );
+function ratioToWorld(ratioX: number, ratioY: number, meta: MapMeta, width: number, height: number) {
+  return {
+    x: meta.origin[0] + width * ratioX * meta.resolution,
+    y: meta.origin[1] + (height - height * ratioY) * meta.resolution,
+  };
 }
 
 export default function App() {
+  const [map, setMap] = useState<PgmImage>();
+  const [meta, setMeta] = useState<MapMeta>(DEFAULT_META);
+  const [mapName, setMapName] = useState('MAP-DEMO');
+  const [imageStatus, setImageStatus] = useState('DEMO');
+  const [yamlStatus, setYamlStatus] = useState('DEFAULT');
+  const [viewMode, setViewMode] = useState<ViewMode>('portrait');
+  const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
+
+  const sourceWidth = map?.width ?? 120;
+  const sourceHeight = map?.height ?? 180;
+
+  const robots = useMemo<Robot[]>(() => {
+    const positions = [
+      { x: 0.35, y: 0.65 },
+      { x: 0.68, y: 0.72 },
+    ];
+
+    return robotSeed.map((robot, index) => {
+      const world = ratioToWorld(
+        positions[index]?.x ?? 0.5,
+        positions[index]?.y ?? 0.5,
+        meta,
+        sourceWidth,
+        sourceHeight,
+      );
+
+      return { ...robot, x: world.x, y: world.y };
+    });
+  }, [meta, sourceHeight, sourceWidth]);
+
+  const racks = useMemo<Rack[]>(() => {
+    const rowRatios = [0.24, 0.38, 0.62, 0.76];
+
+    return rackSeed.map((rack, index) => {
+      const row = Math.floor(index / 7);
+      const col = index % 7;
+      const world = ratioToWorld(
+        0.25 + col * 0.083,
+        rowRatios[row] ?? 0.5,
+        meta,
+        sourceWidth,
+        sourceHeight,
+      );
+      const event = events.find((item) => item.rackId === rack.id);
+
+      return {
+        ...rack,
+        x: world.x,
+        y: world.y,
+        state: event?.type === 'E5' ? 'DOOR_OPEN' : event?.type === 'E7' ? 'LED_RED' : 'NORMAL',
+        severity: event?.severity,
+        updatedAt: event?.time,
+      };
+    });
+  }, [events, meta, sourceHeight, sourceWidth]);
+
+  const handleMapImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      window.alert('Map image is too large. Maximum size is 20 MB.');
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.pgm')) {
+      window.alert('현재 프론트 렌더러는 PGM 지도만 지원합니다.');
+      return;
+    }
+
+    try {
+      const parsed = parsePgm(await file.arrayBuffer());
+      setMap(parsed);
+      setMapName(sanitizeName(file.name));
+      setImageStatus('VALID PGM');
+    } catch (error) {
+      console.error(error);
+      setImageStatus('INVALID');
+      window.alert(`PGM ERROR: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleMapYaml = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const parsed = parseMapYaml(await file.text());
+      setMeta((current) => ({ ...current, ...parsed }));
+      setYamlStatus('VALID');
+    } catch (error) {
+      console.error(error);
+      setYamlStatus('INVALID');
+      window.alert(error instanceof Error ? error.message : 'Invalid YAML');
+    }
+  };
+
+  const loadDemo = () => {
+    setMap(undefined);
+    setMeta(DEFAULT_META);
+    setMapName('MAP-DEMO');
+    setImageStatus('DEMO');
+    setYamlStatus('DEFAULT');
+    setEvents(INITIAL_EVENTS);
+  };
+
+  const triggerE5 = () => {
+    setEvents((current) => {
+      if (current.some((event) => event.rackId === 'R03' && event.type === 'E5')) return current;
+      return [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          type: 'E5',
+          label: 'DOOR OPEN',
+          rackId: 'R03',
+          severity: 3,
+          time: new Date().toLocaleTimeString(),
+        },
+      ];
+    });
+  };
+
   return (
-    <main className="app-shell">
+    <div className="app">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><Building2 size={20} /></div><div><strong>IDC AUTONOMOUS PATROL</strong><small>ROBOT SECURITY CONTROL CENTER</small></div></div>
-        <div className="system-online"><Radio size={15} /><span>SYSTEM ONLINE</span><b>LIVE</b></div>
+        <div>
+          <div className="eyebrow">IDC SECURITY CONTROL</div>
+          <h1>Patrol Map Renderer</h1>
+        </div>
+        <div className="live-badge"><span className="live-dot" />LIVE</div>
       </header>
 
-      <section className="dashboard-grid">
-        <aside className="left-rail panel">
-          <div className="section-heading"><div><span className="eyebrow">FLEET</span><h2>Robots</h2></div><span className="count-chip">2 / 2</span></div>
-          <div className="robot-list">{robots.map((robot) => <RobotCard key={robot.id} robot={robot} />)}</div>
-          <div className="mission-card"><span className="eyebrow">CURRENT MISSION</span><strong>Night Patrol · Route A</strong><div><Activity size={15} /><span>18 / 26 waypoints</span></div><div className="mission-progress"><i /></div></div>
-        </aside>
-
-        <MapView robots={robots} racks={racks} />
-
-        <aside className="right-rail panel">
-          <div className="section-heading"><div><span className="eyebrow">SECURITY</span><h2>Rack Alerts</h2></div><span className="alert-count">{alerts.length}</span></div>
-          <div className="alert-stack">{alerts.map((alert) => <AlertCard key={alert.id} alert={alert} />)}</div>
-          <div className="security-score"><ShieldCheck size={23} /><div><span>Facility Status</span><strong>ATTENTION</strong></div><b>{racks.length - alerts.length}/{racks.length}</b></div>
-        </aside>
+      <section className="toolbar">
+        <label className="file-btn">
+          MAP IMAGE
+          <input type="file" accept=".pgm" onChange={handleMapImage} />
+        </label>
+        <label className="file-btn">
+          MAP YAML
+          <input type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={handleMapYaml} />
+        </label>
+        <button onClick={loadDemo}>LOAD DEMO</button>
+        <button onClick={triggerE5}>TRIGGER E5</button>
+        <button onClick={() => setEvents([])}>CLEAR EVENTS</button>
+        <button className={`view-btn ${viewMode === 'portrait' ? 'active' : ''}`} onClick={() => setViewMode('portrait')}>PORTRAIT</button>
+        <button className={`view-btn ${viewMode === 'landscape' ? 'active' : ''}`} onClick={() => setViewMode('landscape')}>LANDSCAPE</button>
       </section>
 
-      <footer className="statusbar">
-        <div><Bot size={15} /><strong>2</strong><span>Robots Online</span></div>
-        <div><Building2 size={15} /><strong>{racks.length}</strong><span>Racks Monitored</span></div>
-        <div className="footer-alert"><AlertTriangle size={15} /><strong>{alerts.length}</strong><span>Active Alerts</span></div>
-        <div className="push-right"><Clock3 size={15} /><span>UI Mock · 2 Hz target</span></div>
-      </footer>
-    </main>
+      <main className="layout">
+        <MapView
+          map={map}
+          meta={meta}
+          mapName={mapName}
+          viewMode={viewMode}
+          robots={robots}
+          racks={racks}
+          events={events}
+        />
+
+        <aside className="side-panel">
+          <section className="panel">
+            <div className="panel-title">ROBOT STATUS</div>
+            {robots.map((robot) => (
+              <div className="robot-card" key={robot.id}>
+                <div className="robot-name">
+                  <strong className={robot.id}>{robot.id}</strong>
+                  <strong className={robot.id}>{robot.state}</strong>
+                </div>
+                <div className="robot-info"><span>BATTERY</span><span>{robot.battery}%</span></div>
+                <div className="robot-info"><span>X</span><span>{robot.x.toFixed(2)}</span></div>
+                <div className="robot-info"><span>Y</span><span>{robot.y.toFixed(2)}</span></div>
+              </div>
+            ))}
+          </section>
+
+          <section className="panel">
+            <div className="panel-title">SECURITY EVENTS</div>
+            {events.length === 0 ? (
+              <div className="empty">NO ACTIVE EVENTS</div>
+            ) : (
+              events.map((event) => (
+                <div className={`event-card l${event.severity}`} key={event.id}>
+                  <div className="event-type">⚠ {event.type} {event.label}</div>
+                  <div className="event-detail">{event.rackId}</div>
+                  <div className="event-detail">{event.time}</div>
+                </div>
+              ))
+            )}
+          </section>
+
+          <section className="panel">
+            <div className="panel-title">MAP INTEGRITY</div>
+            <div className="integrity-row"><span>Image</span><strong>{imageStatus}</strong></div>
+            <div className="integrity-row"><span>YAML</span><strong>{yamlStatus}</strong></div>
+            <div className="integrity-row"><span>Coordinate</span><strong className="ok">VALID</strong></div>
+            <div className="integrity-row"><span>Overlay</span><strong className="ok">HIGH-DPI</strong></div>
+          </section>
+        </aside>
+      </main>
+    </div>
   );
 }
