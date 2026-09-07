@@ -65,6 +65,11 @@ PC3 owns:
 - `web_video_server` for MJPEG camera delivery.
 - Map file production and SSH/rsync transfer to PC4.
 
+Implementation ownership boundary for PC3 integration:
+
+- W owns `idc_bridge` code and bridge parameters.
+- R1 owns PC3 integrated launch/respawn orchestration under INF-07, with W as secondary/support owner for bridge integration.
+
 ### 2.3 PC4 responsibilities
 
 PC4 owns:
@@ -159,6 +164,8 @@ Primary implementation: PostgreSQL on PC4.
 
 Application persistence is implemented through SQLAlchemy so an approved SQLite fallback can use the same model layer by changing `DATABASE_URL` rather than rewriting application logic.
 
+The canonical rack identifier contract is defined in `docs/mqtt_interface_v1.md`: `rack_id` is `R01`...`R56`, with `aruco_id = int(rack_id[1:])`.
+
 ## 8. Consequences
 
 ### Positive
@@ -227,14 +234,16 @@ The following old SDD assumptions are superseded by this ADR for the current imp
 - Old `/robot1`, `/robot2` examples → deployment `/robot5`, `/robot11` while keeping code namespace-configurable.
 - Old ROS domain/network/IP examples → current as-built network values.
 
+Runtime prerequisites requested in the R1 review (Discovery/SUPER_CLIENT details and the INF-01 time-synchronization value) may be documented in a follow-up runtime-prerequisites PR because they do not change this frozen transport contract.
+
 ## 13. Review / acceptance checklist
 
-ADR-001 becomes **ACCEPTED** only when:
+ADR-001 becomes **ACCEPTED** only when the following review work is complete. Review completion is recorded on PR #3; PR #4 is the final freeze/acceptance PR.
 
-- [ ] P confirms the architecture and REP-02 boundary.
-- [ ] R1 confirms PC3 ROS/Discovery/telemetry inputs and launch ownership.
-- [ ] R3 confirms command and `/server/snapshot` call flow.
-- [ ] A3 confirms `SecurityEvent` publication path.
-- [ ] `docs/mqtt_interface_v1.md` is reviewed together with this ADR.
+- [x] P reviewed the architecture and REP-02 boundary.
+- [x] R1 reviewed PC3 ROS/Discovery/telemetry inputs and launch ownership.
+- [x] R3 reviewed command and `/server/snapshot` call flow.
+- [x] A3 reviewed `SecurityEvent` publication path and rack-id convention.
+- [x] `docs/mqtt_interface_v1.md` was reviewed together with this ADR.
 
-After approval, change status from `PROPOSED` to `ACCEPTED` and change the MQTT interface status from `DRAFT` to `FROZEN v1.0`.
+After PR #4 receives final Code Owner approval and is merged, ADR-001 is accepted together with `mqtt_interface_v1.md` FROZEN v1.0. Further contract changes require PM-approved change control.
