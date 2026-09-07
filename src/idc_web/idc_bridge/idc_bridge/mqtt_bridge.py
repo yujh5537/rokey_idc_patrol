@@ -8,7 +8,11 @@ import paho.mqtt.client as mqtt
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import BatteryState
+from tf2_ros import Buffer, TransformException, TransformListener
+
+from idc_msgs.msg import MissionState
 
 
 def _finite_or_none(value, digits=None):
@@ -30,6 +34,13 @@ def _received_at_utc():
     )
 
 
+def _yaw_from_quaternion(x, y, z, w):
+    """Return planar yaw (radians) from a quaternion."""
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
 class MqttBridge(Node):
 
     def __init__(self):
@@ -39,6 +50,7 @@ class MqttBridge(Node):
         self.declare_parameter('robot_namespace', '')
         self.declare_parameter('mqtt_broker_host', '192.168.107.124')
         self.declare_parameter('mqtt_broker_port', 1883)
+        self.declare_parameter('map_frame', 'map')
 
         robot_namespace = (
             self.get_parameter('robot_namespace')
@@ -59,17 +71,31 @@ class MqttBridge(Node):
             .integer_value
         )
 
+        self.map_frame = (
+            self.get_parameter('map_frame')
+            .get_parameter_value()
+            .string_value
+            .strip('/')
+        )
+
         if not robot_namespace:
             raise ValueError(
                 'robot_namespace parameter is required. '
                 'Example: -p robot_namespace:=/robot5'
             )
 
+        if not self.map_frame:
+            raise ValueError('map_frame parameter must not be empty')
+
         self.robot_id = robot_namespace
+        self.base_frame = f'{self.robot_id}/base_link'
 
         # ROS2와 MQTT에서 사용할 Topic
         self.ros_battery_topic = f'/{self.robot_id}/battery_state'
+        self.ros_mission_state_topic = f'/{self.robot_id}/mission/state'
         self.mqtt_battery_topic = f'idc/{self.robot_id}/battery'
+        self.mqtt_mission_state_topic = f'idc/{self.robot_id}/mission/state'
+        self.mqtt_pose_topic = f'idc/{self.robot_id}/pose'
 
         # 최신 ROS BatteryState를 MQTT 1 Hz로 재전송하기 위한 캐시.
         # received_at/stamp는 새 ROS 메시지를 받은 시점의 값을 그대로 보존한다.
@@ -97,6 +123,18 @@ class MqttBridge(Node):
             qos_profile_sensor_data
         )
 
+        # ROS2 MissionState Subscriber — FROZEN contract 2 Hz source.
+        self.mission_state_subscription = self.create_subscription(
+            MissionState,
+            self.ros_mission_state_topic,
+            self.mission_state_callback,
+            10,
+        )
+
+        # TF map -> robotN/base_link pose bridge.
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
         # FROZEN MQTT Interface v1 §3: battery publish rate >= 1 Hz.
         # 로봇 BatteryState source가 더 느려도 최신 값을 1 Hz로 전달하고,
         # freshness 판단은 보존된 received_at/stamp로 수행한다.
@@ -105,11 +143,32 @@ class MqttBridge(Node):
             self.publish_battery,
         )
 
+        # FROZEN MQTT Interface v1 §3/§4.3: pose publish rate 2 Hz.
+        self.pose_publish_timer = self.create_timer(
+            0.5,
+            self.publish_pose,
+        )
+
         self.get_logger().info(
             f'ROS2 → MQTT Bridge started: '
-            f'{self.ros_battery_topic} → '
-            f'{self.mqtt_battery_topic} → '
-            f'{broker_host}:{broker_port} (battery publish: 1 Hz)'
+            f'battery={self.ros_battery_topic} → {self.mqtt_battery_topic} (1 Hz), '
+            f'mission={self.ros_mission_state_topic} → {self.mqtt_mission_state_topic}, '
+            f'pose={self.map_frame}→{self.base_frame} → {self.mqtt_pose_topic} (2 Hz), '
+            f'broker={broker_host}:{broker_port}'
+        )
+
+    def _publish_json(self, topic, payload, *, qos):
+        payload_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+        return self.mqtt_client.publish(
+            topic,
+            payload_json,
+            qos=qos,
+            retain=False,
         )
 
     def battery_callback(self, msg: BatteryState):
@@ -143,19 +202,11 @@ class MqttBridge(Node):
         if self.latest_battery_payload is None:
             return
 
-        # FROZEN common JSON rule: NaN/Inf를 JSON 숫자로 내보내지 않는다.
-        payload_json = json.dumps(
-            self.latest_battery_payload,
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-
         # FROZEN topic contract: battery QoS 1, retain false, rate >= 1 Hz.
-        result = self.mqtt_client.publish(
+        result = self._publish_json(
             self.mqtt_battery_topic,
-            payload_json,
+            self.latest_battery_payload,
             qos=1,
-            retain=False,
         )
 
         battery_percent = self.latest_battery_payload['battery_percent']
@@ -166,7 +217,97 @@ class MqttBridge(Node):
             )
         else:
             self.get_logger().error(
-                f'MQTT publish failed: rc={result.rc}'
+                f'MQTT battery publish failed: rc={result.rc}'
+            )
+
+    def mission_state_callback(self, msg: MissionState):
+        msg_robot_id = msg.robot_id.strip('/')
+        if msg_robot_id != self.robot_id:
+            self.get_logger().warning(
+                f'ignored MissionState robot_id mismatch: '
+                f'topic={self.robot_id} payload={msg.robot_id!r}'
+            )
+            return
+
+        battery = _finite_or_none(msg.battery)
+        if battery is not None and not 0.0 <= battery <= 1.0:
+            battery = None
+
+        payload = {
+            'schema_version': '1.0',
+            'robot_id': msg_robot_id,
+            'state': msg.state,
+            'waypoint_idx': int(msg.waypoint_idx),
+            'waypoint_total': int(msg.waypoint_total),
+            'battery': battery,
+            'note': msg.note,
+            'received_at': _received_at_utc(),
+        }
+
+        result = self._publish_json(
+            self.mqtt_mission_state_topic,
+            payload,
+            qos=1,
+        )
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            self.get_logger().error(
+                f'MQTT mission state publish failed: rc={result.rc}'
+            )
+
+    def publish_pose(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.map_frame,
+                self.base_frame,
+                Time(),
+            )
+        except TransformException:
+            # TF가 아직 준비되지 않은 startup 구간은 정상적인 상태다.
+            return
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+
+        x = _finite_or_none(translation.x)
+        y = _finite_or_none(translation.y)
+        yaw = _finite_or_none(
+            _yaw_from_quaternion(
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w,
+            )
+        )
+
+        if x is None or y is None or yaw is None:
+            self.get_logger().warning('ignored non-finite TF pose')
+            return
+
+        payload = {
+            'schema_version': '1.0',
+            'robot_id': self.robot_id,
+            'frame_id': self.map_frame,
+            'child_frame_id': self.base_frame,
+            'x': x,
+            'y': y,
+            'yaw': yaw,
+            'stamp': {
+                'sec': transform.header.stamp.sec,
+                'nanosec': transform.header.stamp.nanosec,
+            },
+            'received_at': _received_at_utc(),
+        }
+
+        result = self._publish_json(
+            self.mqtt_pose_topic,
+            payload,
+            qos=0,
+        )
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            self.get_logger().error(
+                f'MQTT pose publish failed: rc={result.rc}'
             )
 
     def destroy_node(self):
