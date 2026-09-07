@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import check_database_connection
+from backend.database import check_database_connection
 
 
 app = FastAPI(
