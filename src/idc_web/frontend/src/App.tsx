@@ -1,8 +1,8 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import MapView, { type SecurityEvent, type ViewMode } from './components/MapView';
 import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
 import type { MapMeta } from './lib/coordinates';
-import { parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
+import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
 const DEFAULT_META: MapMeta = {
   resolution: 0.05,
@@ -36,6 +36,20 @@ export default function App() {
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
   const [viewMode, setViewMode] = useState<ViewMode>('portrait');
   const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
+
+  useEffect(() => {
+    loadSlamMap('/maps/map')
+      .then(({ image, meta: loadedMeta }) => {
+        setMap(image);
+        setMeta(loadedMeta);
+        setMapName('map.pgm');
+        setImageStatus('VALID PGM');
+        setYamlStatus('VALID');
+      })
+      .catch(() => {
+        // public/maps/map.pgm + map.yaml이 없으면 DEMO 화면을 유지한다.
+      });
+  }, []);
 
   const sourceWidth = map?.width ?? 120;
   const sourceHeight = map?.height ?? 180;
