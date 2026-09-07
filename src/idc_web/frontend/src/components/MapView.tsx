@@ -42,11 +42,11 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
   ctx.fillStyle = '#04141f';
   ctx.fillRect(0, 0, width, height);
 
-  const left = width * 0.08;
-  const right = width * 0.92;
-  const top = height * 0.09;
-  const bottom = height * 0.91;
-  const wall = Math.max(4, width * 0.008);
+  const left = width * 0.02;
+  const right = width * 0.98;
+  const top = height * 0.02;
+  const bottom = height * 0.98;
+  const wall = Math.max(2, width * 0.004);
 
   ctx.fillStyle = '#075b70';
   ctx.fillRect(left, top, wall, bottom - top);
@@ -54,17 +54,11 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
   ctx.fillRect(left, top, right - left, wall);
   ctx.fillRect(left, bottom - wall, right - left, wall);
 
-  ctx.fillStyle = '#0d3542';
-  const rows = [0.26, 0.39, 0.61, 0.74];
-  rows.forEach((ratioY) => {
-    for (let ratioX = 0.24; ratioX <= 0.76; ratioX += 0.075) {
-      ctx.fillRect(width * ratioX, height * ratioY, width * 0.018, height * 0.065);
-    }
-  });
-
+  // Rack geometry is rendered only from rack_coords_generalized.csv.
+  // Keep the demo surface neutral so preview blocks cannot be mistaken for real racks.
   ctx.fillStyle = '#102c37';
-  ctx.fillRect(0, 0, width, height * 0.035);
-  ctx.fillRect(0, height * 0.965, width, height * 0.035);
+  ctx.fillRect(0, 0, width, height * 0.025);
+  ctx.fillRect(0, height * 0.975, width, height * 0.025);
 }
 
 function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta) {
@@ -155,6 +149,17 @@ function containedSurfaceSize(containerWidth: number, containerHeight: number): 
   return { width, height: width / aspect };
 }
 
+function rackScreenPosition(rack: Rack, meta: MapMeta, sourceWidth: number, sourceHeight: number) {
+  if (rack.screenXFrac !== undefined && rack.screenYFrac !== undefined) {
+    return {
+      left: `${rack.screenXFrac * 100}%`,
+      top: `${rack.screenYFrac * 100}%`,
+    };
+  }
+
+  return worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight);
+}
+
 export default function MapView({ map, meta, mapName, robots, racks, events }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -184,7 +189,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
-    pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
+    pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight),
   })), [racks, meta, sourceWidth, sourceHeight]);
 
   const robotMarkers = useMemo(() => robots.flatMap((robot) => {
@@ -200,7 +205,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     if (!rack) return [];
     return [{
       event,
-      pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
+      pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight),
     }];
   }), [events, racks, meta, sourceWidth, sourceHeight]);
 
@@ -262,7 +267,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                     boxShadow: 'none',
                     display: 'block',
                   }}
-                  title={`${rack.id} · ${rack.state} · ${rotation}°`}
+                  title={`${rack.id} · ARUCO ${rack.arucoId ?? '--'} · ${rack.state} · ${rotation}°`}
                 >
                   <div
                     style={{
@@ -386,6 +391,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
         <span>CANVAS <strong>{TESTBED_RENDER_SPEC.lengthMm}:{TESTBED_RENDER_SPEC.widthMm}</strong></span>
         <span>AMR <strong>Ø{TESTBED_RENDER_SPEC.amrDiameterMm}mm</strong></span>
         <span>RACK <strong>{TESTBED_RENDER_SPEC.rackWidthMm}×{TESTBED_RENDER_SPEC.rackHeightMm}mm</strong></span>
+        <span>RACKS <strong>{racks.length}</strong></span>
         <span>EVENTS <strong>{events.length}</strong></span>
       </div>
     </section>
