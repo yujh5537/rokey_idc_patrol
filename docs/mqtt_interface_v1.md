@@ -70,7 +70,7 @@ Common JSON rules:
 | ROS→Web | `idc/{robot}/battery` | `/robotN/battery_state` (`sensor_msgs/BatteryState`) | 1 | false | ≥1 Hz |
 | ROS→Web | `idc/{robot}/mission/state` | `/robotN/mission/state` (`idc_msgs/MissionState`) | 1 | false | 2 Hz |
 | ROS→Web | `idc/{robot}/pose` | TF `map → {robot}/base_link` | 0 | false | 2 Hz |
-| ROS→Web | `idc/{robot}/nav/status` | Nav2 action/status summary | 1 | false | on change |
+| ROS→Web | `idc/{robot}/nav/status` | `/robotN/navigate_to_pose/_action/status` (`action_msgs/GoalStatusArray`) | 1 | false | on status change |
 | ROS→Web | `idc/{robot}/perception/objects` | `/robotN/perception/objects` (`idc_msgs/ObjectArray`) | 0 | false | up to 10 Hz; default Web forwarding OFF unless needed |
 | ROS→Web | `idc/events/security` | `/event/events` (`idc_msgs/SecurityEvent`) | 1 | false | event |
 | Web→ROS | `idc/{robot}/cmd/nav_goal` | Nav2 `NavigateToPose` | 1 | false | command |
@@ -81,7 +81,51 @@ Common JSON rules:
 | ROS→Web | `idc/{robot}/cmd/result` | bridge command result | 1 | false | result |
 | Bridge | `idc/{robot}/bridge/status` | bridge availability / LWT | 1 | **true** | connect/disconnect |
 
-### Retained policy
+### 3.1 `nav/status` exact contract
+
+ROS source:
+
+```text
+/robotN/navigate_to_pose/_action/status
+```
+
+ROS type:
+
+```text
+action_msgs/msg/GoalStatusArray
+```
+
+The bridge selects the newest `NavigateToPose` goal by `GoalInfo.stamp`, serializes its ROS UUID as a canonical UUID string, and publishes only when the selected goal status changes. If `status_list` is empty, the bridge does not synthesize an `IDLE` status; mission/UI idle state comes from `MissionState`.
+
+Native ROS 2 GoalStatus mapping is frozen as:
+
+| `status_code` | `status` |
+|---:|---|
+| 0 | `UNKNOWN` |
+| 1 | `ACCEPTED` |
+| 2 | `EXECUTING` |
+| 3 | `CANCELING` |
+| 4 | `SUCCEEDED` |
+| 5 | `CANCELED` |
+| 6 | `ABORTED` |
+
+Minimum MQTT JSON payload:
+
+```json
+{
+  "schema_version": "1.0",
+  "robot_id": "robot5",
+  "goal_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status_code": 2,
+  "status": "EXECUTING",
+  "stamp": {"sec": 0, "nanosec": 0},
+  "received_at": "2026-09-07T01:00:00.000Z"
+}
+```
+
+`stamp` is the selected goal's `GoalInfo.stamp`. `received_at` is the PC3 bridge receive time.
+
+### 3.2 Retained policy
 
 `retain=true` is allowed **only** for `idc/{robot}/bridge/status`.
 
@@ -158,6 +202,20 @@ REP-02 fields are preserved exactly; no ROS interface field is added by the brid
 
 REP-02 hierarchy is preserved.
 
+For the frozen SRV-00 v1 Web/event path, `class_name` values consumed over this mapping are exactly:
+
+```text
+rack_door_open
+rack_door_closed
+led_green
+led_red
+led_off
+```
+
+- `rack_door_open`, `rack_door_closed`: YOLO output.
+- `led_green`, `led_red`, `led_off`: A1 HSV LED classification result.
+- Therefore this five-value Web/event contract is **not** a 1:1 copy of `data.yaml`.
+
 ```json
 {
   "schema_version": "1.0",
@@ -175,7 +233,7 @@ REP-02 hierarchy is preserved.
       },
       "low_confidence": false,
       "zone_id": "zone-a",
-      "rack_id": "rack-01",
+      "rack_id": "R01",
       "identity": ""
     }
   ],
@@ -187,6 +245,15 @@ This stream can be high-rate; default PC4 forwarding is OFF unless UI/debug requ
 
 ### 4.5 SecurityEvent → `idc/events/security`
 
+Frozen MVP severity mapping:
+
+```text
+E5 rack door open = severity 3 (L3)
+E7 LED anomaly    = severity 2 (L2)
+```
+
+E5 example:
+
 ```json
 {
   "schema_version": "1.0",
@@ -194,12 +261,30 @@ This stream can be high-rate; default PC4 forwarding is OFF unless UI/debug requ
   "type": "E5",
   "severity": 3,
   "zone_id": "zone-a",
-  "rack_id": "rack-01",
+  "rack_id": "R01",
   "position": {"x": 1.0, "y": 2.0, "z": 0.0},
   "evidence_ids": [101],
   "detail_json": "{\"votes\":12,\"frames\":15}",
   "stamp": {"sec": 0, "nanosec": 0},
   "received_at": "2026-09-06T07:00:00.000Z"
+}
+```
+
+E7 example:
+
+```json
+{
+  "schema_version": "1.0",
+  "robot_id": "robot5",
+  "type": "E7",
+  "severity": 2,
+  "zone_id": "zone-a",
+  "rack_id": "R01",
+  "position": {"x": 1.0, "y": 2.0, "z": 0.0},
+  "evidence_ids": [102],
+  "detail_json": "{\"led\":\"red\"}",
+  "stamp": {"sec": 0, "nanosec": 0},
+  "received_at": "2026-09-06T07:00:01.000Z"
 }
 ```
 
@@ -330,9 +415,9 @@ Response:
 
 ## 7. REST `/api/v1` contract
 
-Minimum v1 resources required by SRD/SRV work:
+Minimum v1 resources required by SRD/SRV work are listed below. Reserved endpoints remain in the interface namespace so future expansion does not require reopening the frozen naming contract.
 
-| Method | Path | Purpose |
+| Method | Path | Purpose / v1 scope |
 |---|---|---|
 | GET | `/api/v1/health` | backend/database/broker health |
 | GET | `/api/v1/robots` | robot cards/state |
@@ -342,13 +427,14 @@ Minimum v1 resources required by SRD/SRV work:
 | GET | `/api/v1/events/{event_id}` | event detail |
 | POST | `/api/v1/events/{event_id}/ack` | operator ACK + audit log |
 | POST | `/api/v1/evidence` | snapshot image + metadata → evidence_id |
-| GET | `/api/v1/maps/current` | current merged-map metadata |
+| GET | `/api/v1/maps/current` | **v1 구현 범위 외 — 스키마/경로만 예약** |
 | GET | `/api/v1/patrol-runs` | patrol history |
-| GET/PUT | `/api/v1/waypoints` | patrol route read/update |
+| GET | `/api/v1/waypoints` | patrol route read; source of truth is R2 NAV-03 `patrol_routes.yaml` |
+| PUT | `/api/v1/waypoints` | **v1 구현 범위 외 — 쓰기 권한/경로만 예약** |
 | GET/PUT | `/api/v1/zones` | zone/policy read/update |
 | GET | `/api/v1/racks` | rack metadata |
-| GET/POST/DELETE | `/api/v1/persons` | authorised-person records (optional feature) |
-| GET/POST | `/api/v1/auth-events` | virtual auth events |
+| GET/POST/DELETE | `/api/v1/persons` | **v1 구현 범위 외 — 스키마/경로만 예약** |
+| GET/POST | `/api/v1/auth-events` | **v1 구현 범위 외 — 스키마/경로만 예약** |
 | GET | `/api/v1/audit-log` | audit chain query/verification |
 
 ## 8. WebSocket contract
@@ -403,13 +489,20 @@ audit_log
 
 Use SQLAlchemy so PostgreSQL and the approved fallback SQLite can share models by changing only `DATABASE_URL`.
 
-Baseline columns are inherited from SDD 4.2.4:
+### 9.1 Frozen rack identifier contract
+
+- `rack_id` is a string in the range/pattern `R01` ... `R56`.
+- `racks.id` stores that string and is the canonical rack identifier used by ROS→MQTT→FastAPI→DB→React.
+- `aruco_id` is derived as `int(rack_id[1:])`; for example `R01 → 1`, `R56 → 56`.
+- `baseline_led` values are exactly `green | red` for the v1 baseline.
+
+Baseline columns are inherited from SDD 4.2.4 with the frozen rack-id clarification above:
 
 - `robots(id, name, last_seen, battery, state, x, y, yaw)`
 - `patrol_runs(id, started_at, ended_at, map_id, coverage, status)`
 - `waypoints(id, run_id, robot_id, seq, x, y, yaw, rack_id, visited_at, result)`
 - `zones(id, name, polygon_json, allowed_from, allowed_to, min_persons, max_dwell_sec, allowed_person_ids)`
-- `racks(id, aruco_id, x, y, yaw, zone_id, baseline_door, baseline_led)`
+- `racks(id STRING PK [R01..R56], aruco_id INTEGER derived from id, x, y, yaw, zone_id, baseline_door, baseline_led [green|red])`
 - `persons(id, name, org, consent_id, embedding, registered_at, revoked_at)`
 - `auth_events(id, person_id, door_id, ts)`
 - `events(id, run_id, type, severity, zone_id, rack_id, robot_id, x, y, first_ts, last_ts, status, acked_by, acked_at, detail_json)`
@@ -436,18 +529,17 @@ React TypeScript type
 
 REP-02 ROS fields are owned/frozen by P after review. W may add transport metadata such as `schema_version`, `received_at`, and `request_id`, but must not rename/remove REP-02 fields in the mapping.
 
-## 11. REP-02 review notes before Freeze
+## 11. REP-02 review notes at Freeze
 
-The schemas are usable from the W boundary perspective, with two documentation comments to correct before/at merge:
+The schemas are usable from the W boundary perspective. REP-02 message/service fields are not changed by SRV-00.
 
-1. `ObjectArray.msg` comment currently examples `robot1 | robot2`; current deployment is `robot5 | robot11`. Prefer a generic rule: `robot_id = namespace without leading slash`.
-2. `Snapshot.srv`/event/mission comments still describe the old direct `control_server` ROS consumer/server. In v3, PC3 `idc_bridge` owns the ROS boundary and PC4 is ROS-free. This is a comment/ownership correction; message/service fields do not need to change.
-
-`MissionState.msg` intentionally follows SDD 4.2.3 and has no Header; the bridge adds `received_at` rather than changing REP-02.
+1. `robot_id` is interpreted generically as the ROS namespace without the leading slash; the current deployment values are `robot5` and `robot11`.
+2. In v3, PC3 `idc_bridge` owns the ROS boundary and PC4 is ROS-free. `/server/snapshot` is preserved as the REP-02 ROS service and forwarded from PC3 to PC4 over HTTP.
+3. `MissionState.msg` intentionally follows SDD 4.2.3 and has no Header; the bridge adds `received_at` rather than changing REP-02.
 
 ## 12. Freeze checklist
 
-SRV-00 is complete only after all are checked:
+SRV-00 is complete only after all are checked. Review completion was recorded on PR #3; PR #4 is the final freeze/acceptance PR.
 
 - [x] MQTT topic naming drafted
 - [x] JSON payload mappings drafted
@@ -458,10 +550,10 @@ SRV-00 is complete only after all are checked:
 - [x] REST `/api/v1` list drafted
 - [x] WebSocket event names drafted
 - [x] PostgreSQL 10-table logical schema mapped
-- [ ] REP-02 PR #2 approved/merged
-- [ ] P review approved
-- [ ] R1 review approved
-- [ ] R3 review approved
-- [ ] A3 review approved
+- [x] REP-02 PR #2 approved/merged
+- [x] P review completed on PR #3
+- [x] R1 review completed on PR #3
+- [x] R3 review completed on PR #3
+- [x] A3 review completed on PR #3
 
-After the four interface reviews, change this document status from `DRAFT` to `FROZEN v1.0`. Do not change the frozen contract without PM-approved change control.
+After PR #4 receives final approval and is merged, this `FROZEN v1.0` contract must not change without PM-approved change control.
