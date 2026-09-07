@@ -51,6 +51,7 @@ class MqttBridge(Node):
         self.declare_parameter('mqtt_broker_host', '192.168.107.124')
         self.declare_parameter('mqtt_broker_port', 1883)
         self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('base_frame', 'base_link')
 
         robot_namespace = (
             self.get_parameter('robot_namespace')
@@ -78,6 +79,13 @@ class MqttBridge(Node):
             .strip('/')
         )
 
+        self.base_frame = (
+            self.get_parameter('base_frame')
+            .get_parameter_value()
+            .string_value
+            .strip('/')
+        )
+
         if not robot_namespace:
             raise ValueError(
                 'robot_namespace parameter is required. '
@@ -87,8 +95,15 @@ class MqttBridge(Node):
         if not self.map_frame:
             raise ValueError('map_frame parameter must not be empty')
 
+        if not self.base_frame:
+            raise ValueError('base_frame parameter must not be empty')
+
         self.robot_id = robot_namespace
-        self.base_frame = f'{self.robot_id}/base_link'
+
+        # TurtleBot4의 /robotN/tf topic 안 frame_id는 namespace 없이
+        # odom/base_link를 사용한다. MQTT 계약에서는 로봇별 식별을 위해
+        # logical child_frame_id를 robotN/base_link 형태로 유지한다.
+        self.pose_child_frame_id = f'{self.robot_id}/{self.base_frame}'
 
         # ROS2와 MQTT에서 사용할 Topic
         self.ros_battery_topic = f'/{self.robot_id}/battery_state'
@@ -131,7 +146,8 @@ class MqttBridge(Node):
             10,
         )
 
-        # TF map -> robotN/base_link pose bridge.
+        # TF map -> base_link pose bridge.
+        # /robotN/tf와 /robotN/tf_static은 실행 시 remap해서 로봇별로 격리한다.
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -153,7 +169,8 @@ class MqttBridge(Node):
             f'ROS2 → MQTT Bridge started: '
             f'battery={self.ros_battery_topic} → {self.mqtt_battery_topic} (1 Hz), '
             f'mission={self.ros_mission_state_topic} → {self.mqtt_mission_state_topic}, '
-            f'pose={self.map_frame}→{self.base_frame} → {self.mqtt_pose_topic} (2 Hz), '
+            f'pose={self.map_frame}→{self.base_frame} '
+            f'(logical child={self.pose_child_frame_id}) → {self.mqtt_pose_topic} (2 Hz), '
             f'broker={broker_host}:{broker_port}'
         )
 
@@ -263,7 +280,7 @@ class MqttBridge(Node):
                 Time(),
             )
         except TransformException:
-            # TF가 아직 준비되지 않은 startup 구간은 정상적인 상태다.
+            # TF가 아직 준비되지 않은 startup/localization 구간은 정상적인 상태다.
             return
 
         translation = transform.transform.translation
@@ -288,7 +305,7 @@ class MqttBridge(Node):
             'schema_version': '1.0',
             'robot_id': self.robot_id,
             'frame_id': self.map_frame,
-            'child_frame_id': self.base_frame,
+            'child_frame_id': self.pose_child_frame_id,
             'x': x,
             'y': y,
             'yaw': yaw,
