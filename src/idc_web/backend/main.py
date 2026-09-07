@@ -85,13 +85,19 @@ def latest_active_rack_events(db: Session) -> dict[str, Event]:
     ).all()
 
     latest: dict[str, Event] = {}
+    seen_racks: set[str] = set()
     for event in events:
-        if event.rack_id in latest:
+        rack_id = event.rack_id
+        if rack_id is None or rack_id in seen_racks:
             continue
+
+        # Only the latest rack event decides current state. If the latest event
+        # is resolved, an older abnormal event must not become active again.
+        seen_racks.add(rack_id)
         status = (event.status or "").upper()
         if status in resolved_statuses:
             continue
-        latest[event.rack_id] = event
+        latest[rack_id] = event
     return latest
 
 
@@ -113,7 +119,7 @@ def rack_to_dict(rack: Rack, event: Event | None = None) -> dict:
         "state": state,
         "severity": event.severity if event is not None else None,
         "updated_at": (
-            event.last_ts or event.first_ts
+            (event.last_ts or event.first_ts)
             if event is not None
             else None
         ),
