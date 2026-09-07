@@ -6,7 +6,8 @@ log/
 __pycache__/
 *.pyc
 *.egg-info/
-.venv/ venv/
+.venv/
+venv/
 # 데이터·모델·rosbag — 공유 드라이브 사용, Git 금지
 data/
 datasets/
