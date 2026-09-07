@@ -165,7 +165,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   useEffect(() => {
     if (canvasRef.current) paintMap(canvasRef.current, map, meta);
-  }, [map, meta]);
+  }, [map, meta, surfaceSize.width]);
 
   useEffect(() => {
     const element = stageRef.current;
