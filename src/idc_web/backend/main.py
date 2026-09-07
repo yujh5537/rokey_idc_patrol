@@ -2,13 +2,14 @@ from contextlib import asynccontextmanager
 import socket
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.database import check_database_connection, get_db
-from backend.models import Robot
+from backend.models import Event, Rack, Robot
 from backend.mqtt_consumer import MqttTelemetryConsumer
 
 
@@ -28,6 +29,19 @@ app = FastAPI(
     title="IDC Patrol Control Server",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# PC4 Vite dev server -> PC4 FastAPI. Production reverse proxy can remove this.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.107.124:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 
@@ -54,6 +68,55 @@ def robot_to_dict(robot: Robot) -> dict:
         "x": robot.x,
         "y": robot.y,
         "yaw": robot.yaw,
+    }
+
+
+def latest_active_rack_events(db: Session) -> dict[str, Event]:
+    resolved_statuses = {"RESOLVED", "CLOSED", "CLEARED"}
+    events = db.scalars(
+        select(Event)
+        .where(Event.rack_id.is_not(None))
+        .where(Event.type.in_(["E5", "E7"]))
+        .order_by(
+            Event.last_ts.desc().nullslast(),
+            Event.first_ts.desc().nullslast(),
+            Event.id.desc(),
+        )
+    ).all()
+
+    latest: dict[str, Event] = {}
+    for event in events:
+        if event.rack_id in latest:
+            continue
+        status = (event.status or "").upper()
+        if status in resolved_statuses:
+            continue
+        latest[event.rack_id] = event
+    return latest
+
+
+def rack_to_dict(rack: Rack, event: Event | None = None) -> dict:
+    state = "NORMAL"
+    if event is not None:
+        if event.type == "E5":
+            state = "DOOR_OPEN"
+        elif event.type == "E7":
+            state = "LED_RED"
+
+    return {
+        "rack_id": rack.id,
+        "aruco_id": rack.aruco_id,
+        "x": rack.x,
+        "y": rack.y,
+        "yaw": rack.yaw,
+        "zone_id": rack.zone_id,
+        "state": state,
+        "severity": event.severity if event is not None else None,
+        "updated_at": (
+            event.last_ts or event.first_ts
+            if event is not None
+            else None
+        ),
     }
 
 
@@ -101,6 +164,18 @@ def get_robot(robot_id: str, db: Session = Depends(get_db)):
             detail="robot not found",
         )
     return robot_to_dict(robot)
+
+
+@app.get("/api/v1/racks")
+def list_racks(db: Session = Depends(get_db)):
+    racks = db.scalars(
+        select(Rack).order_by(Rack.id)
+    ).all()
+    events = latest_active_rack_events(db)
+    return [
+        rack_to_dict(rack, events.get(rack.id))
+        for rack in racks
+    ]
 
 
 @app.get("/")
