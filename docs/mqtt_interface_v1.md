@@ -232,7 +232,7 @@ led_off
         "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
       },
       "low_confidence": false,
-      "zone_id": "zone-a",
+      "zone_id": "Z1",
       "rack_id": "R01",
       "identity": ""
     }
@@ -260,7 +260,7 @@ E5 example:
   "robot_id": "robot5",
   "type": "E5",
   "severity": 3,
-  "zone_id": "zone-a",
+  "zone_id": "Z1",
   "rack_id": "R01",
   "position": {"x": 1.0, "y": 2.0, "z": 0.0},
   "evidence_ids": [101],
@@ -278,7 +278,7 @@ E7 example:
   "robot_id": "robot5",
   "type": "E7",
   "severity": 2,
-  "zone_id": "zone-a",
+  "zone_id": "Z1",
   "rack_id": "R01",
   "position": {"x": 1.0, "y": 2.0, "z": 0.0},
   "evidence_ids": [102],
@@ -489,19 +489,21 @@ audit_log
 
 Use SQLAlchemy so PostgreSQL and the approved fallback SQLite can share models by changing only `DATABASE_URL`.
 
-### 9.1 Frozen rack identifier contract
+### 9.1 Frozen rack and zone identifier contract
 
 - `rack_id` is a string in the range/pattern `R01` ... `R56`.
 - `racks.id` stores that string and is the canonical rack identifier used by ROS→MQTT→FastAPI→DB→React.
 - `aruco_id` is derived as `int(rack_id[1:])`; for example `R01 → 1`, `R56 → 56`.
 - `baseline_led` values are exactly `green | red` for the v1 baseline.
+- `zone_id` is a string in the range/pattern `Z1` ... `Z4`.
+- `zones.id` stores that string and is the canonical zone identifier used by ROS→MQTT→FastAPI→DB→React.
 
-Baseline columns are inherited from SDD 4.2.4 with the frozen rack-id clarification above:
+Baseline columns are inherited from SDD 4.2.4 with the frozen rack/zone identifier clarification above:
 
 - `robots(id, name, last_seen, battery, state, x, y, yaw)`
 - `patrol_runs(id, started_at, ended_at, map_id, coverage, status)`
 - `waypoints(id, run_id, robot_id, seq, x, y, yaw, rack_id, visited_at, result)`
-- `zones(id, name, polygon_json, allowed_from, allowed_to, min_persons, max_dwell_sec, allowed_person_ids)`
+- `zones(id STRING PK [Z1..Z4], name, polygon_json, allowed_from, allowed_to, min_persons, max_dwell_sec, allowed_person_ids)`
 - `racks(id STRING PK [R01..R56], aruco_id INTEGER derived from id, x, y, yaw, zone_id, baseline_door, baseline_led [green|red])`
 - `persons(id, name, org, consent_id, embedding, registered_at, revoked_at)`
 - `auth_events(id, person_id, door_id, ts)`
