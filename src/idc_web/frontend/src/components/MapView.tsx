@@ -187,10 +187,13 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
   })), [racks, meta, sourceWidth, sourceHeight]);
 
-  const robotMarkers = useMemo(() => robots.map((robot) => ({
-    robot,
-    pos: worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight),
-  })), [robots, meta, sourceWidth, sourceHeight]);
+  const robotMarkers = useMemo(() => robots.flatMap((robot) => {
+    if (robot.x === null || robot.y === null) return [];
+    return [{
+      robot,
+      pos: worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight),
+    }];
+  }), [robots, meta, sourceWidth, sourceHeight]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
@@ -349,7 +352,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                       top: '-1.5px',
                       width: `${headingLength}px`,
                       height: '3px',
-                      transform: `rotate(${-robot.yaw}rad)`,
+                      transform: `rotate(${-(robot.yaw ?? 0)}rad)`,
                       transformOrigin: '0 50%',
                     }}
                   />
@@ -361,7 +364,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                     }}
                   >
                     <strong>{robot.id.toUpperCase()}</strong>
-                    <small>{robot.state} · BAT {robot.battery}%</small>
+                    <small>{robot.state} · BAT {robot.battery === null ? '--' : robot.battery.toFixed(1)}%</small>
                   </div>
                 </div>
               );
