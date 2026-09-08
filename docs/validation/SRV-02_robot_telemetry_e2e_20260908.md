@@ -4,7 +4,7 @@ Date: 2026-09-08
 
 ## Scope
 
-Validate the SRV-02 telemetry ingestion path from ROS 2 on PC3 through MQTT on PC4, PostgreSQL persistence, and FastAPI robot REST endpoints.
+Validate the SRV-02 telemetry ingestion path from ROS 2 on PC3 through MQTT on PC4, PostgreSQL persistence, and FastAPI robot/event REST endpoints.
 
 ## Environment
 
@@ -92,10 +92,73 @@ The SRV-02 ingestion pipeline was validated with a ROS 2 test publisher because 
 
 Result: PASS
 
+## Events REST
+
+SRV-00 reserves `GET /api/v1/events` for event list/filter. SRV-02 now implements the minimum read path without moving SRV-04/SRV-05 event ingestion, evidence, or ACK responsibilities into this task.
+
+Implemented endpoint:
+
+```http
+GET /api/v1/events
+```
+
+Supported optional filters:
+
+```text
+type
+status
+robot_id
+rack_id
+zone_id
+limit (1..500, default 100)
+```
+
+Response fields preserve the existing `events` DB schema, including `detail_json` as a string.
+
+Code-level contract validation performed with an in-memory SQLAlchemy/FastAPI test fixture:
+
+```text
+- newest event ordering: PASS
+- type + robot_id filtering: PASS
+- invalid limit validation: PASS (HTTP 422)
+```
+
+Result: PASS (implementation/contract)
+
+## REST Response-Time Validation
+
+SRV-02 target:
+
+```text
+API response < 1.0 second
+```
+
+Runtime validation helper:
+
+```bash
+bash docs/validation/SRV-02_api_runtime_check.sh
+```
+
+The script checks:
+
+```text
+GET /api/v1/robots
+GET /api/v1/robots/robot5
+GET /api/v1/events
+```
+
+and fails unless every endpoint returns HTTP 2xx in under 1.0 second.
+
+Actual PC4 runtime measurement must be recorded from the deployment machine before final SRV-02 completion sign-off.
+
+Result: PENDING PC4 RUNTIME MEASUREMENT
+
 ## Final Result
 
 ```text
-Battery E2E       PASS
-Pose x/y/yaw E2E  PASS
-MissionState E2E  PASS
+Battery E2E                  PASS
+Pose x/y/yaw E2E             PASS
+MissionState E2E             PASS
+GET /api/v1/events contract  PASS
+REST response < 1.0 s        PENDING PC4 RUNTIME MEASUREMENT
 ```
