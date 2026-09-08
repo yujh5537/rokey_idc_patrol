@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { rackLayout } from '../data/rackLayout';
 import type { Rack, Robot } from '../data/mock';
 import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from '../data/testbed';
-import { worldToPercent, type MapMeta } from '../lib/coordinates';
+import type { MapMeta } from '../lib/coordinates';
 import type { PgmImage } from '../lib/pgm';
 
 export interface SecurityEvent {
@@ -25,6 +26,12 @@ interface Props {
 interface SurfaceSize {
   width: number;
   height: number;
+}
+
+const rackLayoutById = new Map(rackLayout.map((rack) => [rack.rackId, rack]));
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
 }
 
 function occupancyColor(value: number, maxValue: number, meta: MapMeta) {
@@ -68,44 +75,67 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
 }
 
 function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta) {
-  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
-  canvas.width = sourceWidth;
-  canvas.height = sourceHeight;
+  if (!map) {
+    canvas.width = DEMO_MAP_SIZE.width;
+    canvas.height = DEMO_MAP_SIZE.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    paintDemo(ctx, canvas.width, canvas.height);
+    return;
+  }
+
+  const rotatePortrait = map.height > map.width;
+  const outputWidth = rotatePortrait ? map.height : map.width;
+  const outputHeight = rotatePortrait ? map.width : map.height;
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
   ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+  ctx.clearRect(0, 0, outputWidth, outputHeight);
 
-  if (!map) {
-    paintDemo(ctx, sourceWidth, sourceHeight);
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = map.width;
+  sourceCanvas.height = map.height;
+  const sourceCtx = sourceCanvas.getContext('2d');
+  if (!sourceCtx) return;
+
+  const image = sourceCtx.createImageData(map.width, map.height);
+  for (let i = 0; i < map.pixels.length; i += 1) {
+    const color = occupancyColor(map.pixels[i], map.maxValue, meta);
+    const offset = i * 4;
+    image.data[offset] = Number.parseInt(color.slice(1, 3), 16);
+    image.data[offset + 1] = Number.parseInt(color.slice(3, 5), 16);
+    image.data[offset + 2] = Number.parseInt(color.slice(5, 7), 16);
+    image.data[offset + 3] = 255;
+  }
+  sourceCtx.putImageData(image, 0, 0);
+
+  if (rotatePortrait) {
+    ctx.save();
+    ctx.translate(0, outputHeight);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(sourceCanvas, 0, 0);
+    ctx.restore();
   } else {
-    const image = ctx.createImageData(sourceWidth, sourceHeight);
-    for (let i = 0; i < map.pixels.length; i += 1) {
-      const color = occupancyColor(map.pixels[i], map.maxValue, meta);
-      const offset = i * 4;
-      image.data[offset] = Number.parseInt(color.slice(1, 3), 16);
-      image.data[offset + 1] = Number.parseInt(color.slice(3, 5), 16);
-      image.data[offset + 2] = Number.parseInt(color.slice(5, 7), 16);
-      image.data[offset + 3] = 255;
-    }
-    ctx.putImageData(image, 0, 0);
+    ctx.drawImage(sourceCanvas, 0, 0);
   }
 
   const gradient = ctx.createRadialGradient(
-    sourceWidth / 2,
-    sourceHeight / 2,
-    Math.min(sourceWidth, sourceHeight) * 0.08,
-    sourceWidth / 2,
-    sourceHeight / 2,
-    Math.max(sourceWidth, sourceHeight) * 0.72,
+    outputWidth / 2,
+    outputHeight / 2,
+    Math.min(outputWidth, outputHeight) * 0.08,
+    outputWidth / 2,
+    outputHeight / 2,
+    Math.max(outputWidth, outputHeight) * 0.72,
   );
   gradient.addColorStop(0, 'rgba(0, 220, 255, 0.03)');
   gradient.addColorStop(1, 'rgba(1, 8, 14, 0.35)');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, sourceWidth, sourceHeight);
+  ctx.fillRect(0, 0, outputWidth, outputHeight);
 }
 
 function rackPalette(state: Rack['state']) {
@@ -155,6 +185,76 @@ function containedSurfaceSize(containerWidth: number, containerHeight: number): 
   return { width, height: width / aspect };
 }
 
+function worldToDisplayPercent(
+  x: number,
+  y: number,
+  meta: MapMeta,
+  sourceWidth: number,
+  sourceHeight: number,
+  rotatePortrait: boolean,
+) {
+  const px = (x - meta.origin[0]) / meta.resolution;
+  const pyFromBottom = (y - meta.origin[1]) / meta.resolution;
+  const sourceXFrac = clamp01(px / sourceWidth);
+  const sourceYFrac = clamp01((sourceHeight - pyFromBottom) / sourceHeight);
+
+  if (rotatePortrait) {
+    return {
+      left: `${sourceYFrac * 100}%`,
+      top: `${(1 - sourceXFrac) * 100}%`,
+    };
+  }
+
+  return {
+    left: `${sourceXFrac * 100}%`,
+    top: `${sourceYFrac * 100}%`,
+  };
+}
+
+function rackScreenPosition(
+  rack: Rack,
+  map: PgmImage | undefined,
+  meta: MapMeta,
+  sourceWidth: number,
+  sourceHeight: number,
+  rotatePortrait: boolean,
+) {
+  const layout = rackLayoutById.get(rack.id);
+
+  if (map && rotatePortrait && layout) {
+    const mapWidthM = sourceWidth * meta.resolution;
+    const mapHeightM = sourceHeight * meta.resolution;
+    const testbedWidthM = TESTBED_RENDER_SPEC.widthMm / 1000;
+    const testbedLengthM = TESTBED_RENDER_SPEC.lengthMm / 1000;
+    const padXM = Math.max(0, (mapWidthM - testbedWidthM) / 2);
+    const padYM = Math.max(0, (mapHeightM - testbedLengthM) / 2);
+
+    const sourceXFrac = clamp01((layout.xM + padXM) / mapWidthM);
+    const sourceYFrac = clamp01(1 - (layout.yM + padYM) / mapHeightM);
+
+    return {
+      left: `${sourceYFrac * 100}%`,
+      top: `${(1 - sourceXFrac) * 100}%`,
+    };
+  }
+
+  if (layout) {
+    return {
+      left: `${layout.screenXFrac * 100}%`,
+      top: `${layout.screenYFrac * 100}%`,
+    };
+  }
+
+  if (rack.screenXFrac !== undefined && rack.screenYFrac !== undefined) {
+    return {
+      left: `${rack.screenXFrac * 100}%`,
+      top: `${rack.screenYFrac * 100}%`,
+    };
+  }
+
+  return worldToDisplayPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight, rotatePortrait);
+}
+
 export default function MapView({ map, meta, mapName, robots, racks, events }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -162,6 +262,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
   const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
+  const rotatePortrait = Boolean(map && map.height > map.width);
 
   useEffect(() => {
     if (canvasRef.current) paintMap(canvasRef.current, map, meta);
@@ -184,26 +285,34 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
-    pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
-  })), [racks, meta, sourceWidth, sourceHeight]);
+    pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
+  })), [racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const robotMarkers = useMemo(() => robots.map((robot) => ({
     robot,
-    pos: worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight),
-  })), [robots, meta, sourceWidth, sourceHeight]);
+    pos: worldToDisplayPercent(
+      robot.x,
+      robot.y,
+      meta,
+      sourceWidth,
+      sourceHeight,
+      rotatePortrait,
+    ),
+  })), [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
     if (!rack) return [];
     return [{
       event,
-      pos: worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight),
+      pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
     }];
-  }), [events, racks, meta, sourceWidth, sourceHeight]);
+  }), [events, racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const amrDiameterPx = surfaceSize.width * TESTBED_RENDER_SPEC.amrDiameterFrac;
   const rackWidthPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
   const rackHeightPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackHeightFrac;
+  const robotHeadingOffset = rotatePortrait ? -Math.PI / 2 : 0;
 
   return (
     <section className="map-card">
@@ -242,7 +351,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
             {rackMarkers.map(({ rack, pos }) => {
               const palette = rackPalette(rack.state);
-              const rotation = rack.screenRotateDeg ?? 0;
+              const rotation = ((rack.screenRotateDeg ?? 0) + 90) % 360;
 
               return (
                 <div
@@ -349,7 +458,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                       top: '-1.5px',
                       width: `${headingLength}px`,
                       height: '3px',
-                      transform: `rotate(${-robot.yaw}rad)`,
+                      transform: `rotate(${-robot.yaw + robotHeadingOffset}rad)`,
                       transformOrigin: '0 50%',
                     }}
                   />
