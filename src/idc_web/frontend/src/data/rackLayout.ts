@@ -47,19 +47,14 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
     const xMm = toFiniteNumber(cells[1], 'x_mm', index + 2);
     const yMm = toFiniteNumber(cells[2], 'y_mm', index + 2);
     const yawDeg = toFiniteNumber(cells[3], 'yaw_deg', index + 2);
-
-    // The rack CSV was generated from the portrait/original map axes, while the
-    // React control screen intentionally displays that map on a landscape surface.
-    // Swap the normalized screen axes so rack rows follow the same horizontal
-    // presentation instead of appearing as vertical columns.
-    const portraitXFrac = toFiniteNumber(cells[4], 'pixel_x_frac', index + 2);
-    const portraitYFrac = toFiniteNumber(cells[5], 'pixel_y_frac', index + 2);
+    const screenXFrac = toFiniteNumber(cells[4], 'pixel_x_frac', index + 2);
+    const screenYFrac = toFiniteNumber(cells[5], 'pixel_y_frac', index + 2);
     const screenRotateDeg = toFiniteNumber(cells[6], 'screen_rotate_deg', index + 2);
 
     if (!Number.isInteger(arucoId) || arucoId < 1 || arucoId > 56 || seen.has(arucoId)) {
       throw new Error(`Invalid or duplicate rack_id ${cells[0]}`);
     }
-    if (portraitXFrac < 0 || portraitXFrac > 1 || portraitYFrac < 0 || portraitYFrac > 1) {
+    if (screenXFrac < 0 || screenXFrac > 1 || screenYFrac < 0 || screenYFrac > 1) {
       throw new Error(`Rack ${arucoId} screen fractions must be within 0..1`);
     }
 
@@ -71,9 +66,10 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
       xM: xMm / 1000,
       yM: yMm / 1000,
       yawRad: yawDeg * Math.PI / 180,
-      screenXFrac: portraitYFrac,
-      screenYFrac: portraitXFrac,
-      // 90/270 degrees keeps each rack footprint horizontal on the landscape UI.
+      // The generalized CSV is already expressed for the landscape
+      // 5700 x 3500 control-screen canvas. Do not swap these axes again.
+      screenXFrac,
+      screenYFrac,
       screenRotateDeg,
     };
   });
