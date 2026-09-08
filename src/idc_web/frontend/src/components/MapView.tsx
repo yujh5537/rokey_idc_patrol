@@ -103,8 +103,8 @@ function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: Ma
   sourceCtx.putImageData(image, 0, 0);
 
   if (rotatePortrait) {
-    // Original SLAM maps are portrait. The control UI is landscape, so rotate
-    // the image 90 degrees counter-clockwise instead of stretching it.
+    // The source SLAM PGM is portrait. Rotate the actual pixel map 90deg left
+    // and apply the exact same transform to rack/robot overlays below.
     ctx.save();
     ctx.translate(0, outputHeight);
     ctx.rotate(-Math.PI / 2);
@@ -189,7 +189,7 @@ function worldToDisplayPercent(
   const sourceYFrac = clamp01((sourceHeight - pyFromBottom) / sourceHeight);
 
   if (rotatePortrait) {
-    // Same 90deg CCW transform as paintMap(): (u, v) -> (v, 1-u)
+    // Same 90deg-left transform as paintMap(): (u, v) -> (v, 1-u).
     return {
       left: `${sourceYFrac * 100}%`,
       top: `${(1 - sourceXFrac) * 100}%`,
@@ -204,14 +204,36 @@ function worldToDisplayPercent(
 
 function rackScreenPosition(
   rack: Rack,
+  map: PgmImage | undefined,
   meta: MapMeta,
   sourceWidth: number,
   sourceHeight: number,
   rotatePortrait: boolean,
 ) {
+  if (map && rotatePortrait) {
+    // rack x/y are local testbed coordinates (metres): 3500 x 5700 mm.
+    // rb11auto2.pgm is 75 x 119 px at 0.05m/px = 3.75 x 5.95m.
+    // Therefore the real PGM contains 0.25m more on each physical axis.
+    // Place the 3.5 x 5.7m testbed in the centre of that real PGM first,
+    // then apply exactly the same 90deg-left transform used by paintMap().
+    const mapWidthM = sourceWidth * meta.resolution;
+    const mapHeightM = sourceHeight * meta.resolution;
+    const testbedWidthM = TESTBED_RENDER_SPEC.widthMm / 1000;
+    const testbedLengthM = TESTBED_RENDER_SPEC.lengthMm / 1000;
+    const padXM = Math.max(0, (mapWidthM - testbedWidthM) / 2);
+    const padYM = Math.max(0, (mapHeightM - testbedLengthM) / 2);
+
+    const sourceXFrac = clamp01((rack.x + padXM) / mapWidthM);
+    const sourceYFrac = clamp01(1 - (rack.y + padYM) / mapHeightM);
+
+    return {
+      left: `${sourceYFrac * 100}%`,
+      top: `${(1 - sourceXFrac) * 100}%`,
+    };
+  }
+
+  // Without the real PGM, keep the generalized 5700 x 3500 preview layout.
   if (rack.screenXFrac !== undefined && rack.screenYFrac !== undefined) {
-    // rack_coords_generalized.csv is already normalized for the 5700x3500
-    // landscape control screen, so use these values directly.
     return {
       left: `${rack.screenXFrac * 100}%`,
       top: `${rack.screenYFrac * 100}%`,
@@ -251,8 +273,8 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
-    pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight, rotatePortrait),
-  })), [racks, meta, sourceWidth, sourceHeight, rotatePortrait]);
+    pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
+  })), [racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const robotMarkers = useMemo(() => robots.flatMap((robot) => {
     if (robot.x === null || robot.y === null) return [];
@@ -274,9 +296,9 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     if (!rack) return [];
     return [{
       event,
-      pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight, rotatePortrait),
+      pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
     }];
-  }), [events, racks, meta, sourceWidth, sourceHeight, rotatePortrait]);
+  }), [events, racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const amrDiameterPx = surfaceSize.width * TESTBED_RENDER_SPEC.amrDiameterFrac;
   const rackThinPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
@@ -320,7 +342,10 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
             {rackMarkers.map(({ rack, pos }) => {
               const palette = rackPalette(rack.state);
-              const rotation = rack.screenRotateDeg ?? 0;
+              // CSV front direction is 90/270deg for its horizontal icon convention.
+              // Our rack body is drawn as a vertical 85 x 210mm footprint, so add
+              // 90deg to preserve front/back direction while keeping the body '|'.
+              const rotation = ((rack.screenRotateDeg ?? 0) + 90) % 360;
 
               return (
                 <div
@@ -344,9 +369,6 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                       position: 'absolute',
                       left: 0,
                       top: 0,
-                      // Base rack footprint is 85 x 210mm with the front on the
-                      // right edge. CSV rotations are 90/270deg, so the final
-                      // on-screen footprint is horizontal as required.
                       width: `${rackThinPx}px`,
                       height: `${rackLongPx}px`,
                       transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
@@ -462,7 +484,8 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
         <span>RES <strong>{meta.resolution} m/px</strong></span>
         <span>ORIGIN <strong>{meta.origin[0].toFixed(3)}, {meta.origin[1].toFixed(3)}</strong></span>
         <span>CANVAS <strong>{TESTBED_RENDER_SPEC.lengthMm}:{TESTBED_RENDER_SPEC.widthMm}</strong></span>
-        <span>MAP <strong>{rotatePortrait ? 'PORTRAIT→LANDSCAPE' : 'LANDSCAPE'}</strong></span>
+        <span>MAP <strong>{rotatePortrait ? 'PORTRAIT→LEFT 90°' : 'LANDSCAPE'}</strong></span>
+        <span>PGM <strong>{map ? `${map.width}×${map.height}` : 'DEMO'}</strong></span>
         <span>AMR <strong>Ø{TESTBED_RENDER_SPEC.amrDiameterMm}mm</strong></span>
         <span>RACK <strong>{TESTBED_RENDER_SPEC.rackWidthMm}×{TESTBED_RENDER_SPEC.rackHeightMm}mm</strong></span>
         <span>RACKS <strong>{racks.length}</strong></span>
