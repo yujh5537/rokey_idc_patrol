@@ -2,17 +2,65 @@
 
 W-owned control/web workspace.
 
-`idc_web` 아래에 ROS↔MQTT Bridge, FastAPI/PostgreSQL Backend, React Frontend를 함께 관리한다.
+`idc_web` 아래에서 ROS↔MQTT Bridge, FastAPI/PostgreSQL Backend, React Frontend를 함께 관리한다.
+소스 코드는 한 디렉터리에서 관리하지만 **실제 실행 환경은 PC3와 PC4로 분리**한다.
 
-소스 코드는 하나의 디렉터리에서 관리하지만 실제 실행 환경은 ADR-001 기준으로 분리한다.
-
-- **PC3**: ROS 2 + `idc_bridge`
-- **PC4**: Mosquitto + FastAPI + PostgreSQL + React
+- **PC3 (`192.168.107.21`)**: ROS 2 Jazzy + Fast DDS Discovery Server + `idc_bridge`
+- **PC4 (`192.168.107.124`)**: Mosquitto + FastAPI + PostgreSQL + React
 - **PC4는 ROS 2에 참여하지 않는다.**
+- 현재 로봇 네임스페이스: `/robot5`, `/robot11`
+- `ROS_DOMAIN_ID=2`
 
 ---
 
-## Structure
+## 1. Architecture Boundary
+
+```text
+TurtleBot4 / ROS 2 graph
+  /robot5
+  /robot11
+      │
+      ▼
+PC3 192.168.107.21
+  ROS 2 + Fast DDS + idc_bridge
+      │
+      ├── Battery / MissionState / Pose → MQTT JSON
+      └── 후속: Nav status / SecurityEvent / Command / Bridge status
+      │
+      ▼ MQTT
+PC4 192.168.107.124
+  Mosquitto
+      │
+      ▼
+  FastAPI MQTT Consumer
+      │
+      ▼
+  PostgreSQL
+      │
+      ├── REST
+      └── 후속 WebSocket
+          │
+          ▼
+        React
+```
+
+경계 원칙:
+
+- PC4에 ROS 2, `rclpy`, DDS 의존성을 추가하지 않는다.
+- ROS 상태/이벤트/명령 경계는 PC3의 `idc_bridge`가 담당한다.
+- Map(`.yaml`, `.pgm`)은 MQTT가 아니라 PC3→PC4 SSH/rsync로 전달한다.
+- Snapshot 이미지는 후속 `/server/snapshot` → HTTP `POST /api/v1/evidence` 경로를 사용한다.
+- Camera 영상은 후속 PC3 `web_video_server` MJPEG를 React에서 embed한다.
+
+기준 계약:
+
+```text
+docs/mqtt_interface_v1.md
+```
+
+---
+
+## 2. Repository Structure
 
 ```text
 src/idc_web/
@@ -30,6 +78,7 @@ src/idc_web/
 │   ├── COLCON_IGNORE
 │   ├── __init__.py
 │   ├── main.py
+│   ├── mqtt_consumer.py
 │   ├── config.py
 │   ├── database.py
 │   ├── models.py
@@ -45,230 +94,194 @@ src/idc_web/
     └── src/
 ```
 
-`src/idc_web/COLCON_IGNORE`는 사용하지 않는다.
+`src/idc_web` 자체에는 `COLCON_IGNORE`를 두지 않는다.
+`colcon`이 하위 ROS 패키지인 `src/idc_web/idc_bridge`를 찾아야 하기 때문이다.
 
-이유는 `colcon`이 하위의 ROS 2 패키지인 `idc_bridge`를 찾아야 하기 때문이다.
-
-대신 ROS 2 패키지가 아닌 다음 디렉터리에 각각 `COLCON_IGNORE`를 둔다.
+Web-only 디렉터리는 각각 제외한다.
 
 ```text
 src/idc_web/backend/COLCON_IGNORE
 src/idc_web/frontend/COLCON_IGNORE
 ```
 
-따라서 `colcon`은 다음 패키지만 ROS 2 패키지로 인식한다.
+---
 
-```text
-src/idc_web/idc_bridge
+# 3. Current Implementation Status — SRV-02
+
+SRV-02 기준으로 현재 다음 telemetry 경로가 구현 및 E2E 검증되어 있다.
+
+| ROS Source | MQTT Topic | MQTT QoS | Retain | PC4 저장 |
+|---|---|---:|---|---|
+| `/robotN/battery_state` | `idc/{robot}/battery` | 1 | false | `robots.battery`, `last_seen` |
+| `/robotN/mission/state` | `idc/{robot}/mission/state` | 1 | false | `robots.state`, `last_seen` |
+| TF `map → base_link` | `idc/{robot}/pose` | 0 | false | `robots.x/y/yaw`, `last_seen` |
+
+Pose는 **2 Hz**로 publish한다.
+Battery는 최신 ROS 값을 **1 Hz**로 전달한다.
+
+PC4 FastAPI 현재 REST 범위:
+
+```http
+GET /api/v1/health
+GET /api/v1/robots
+GET /api/v1/robots/{robot_id}
+GET /api/v1/events
 ```
 
-소스 코드 위치와 실제 실행 PC는 별개다.
+`GET /api/v1/events` 선택 필터:
 
-`idc_bridge`는 `idc_web` 아래에서 함께 관리하지만 **PC3에서 실행**하고,
-FastAPI/PostgreSQL/Mosquitto/React는 **PC4에서 실행**한다.
+```text
+type
+status
+robot_id
+rack_id
+zone_id
+limit=1..500 (default 100)
+```
+
+SRV-02 실기 검증 문서:
+
+```text
+docs/validation/SRV-02_robot_telemetry_e2e_20260908.md
+```
+
+API 응답시간 검증 스크립트:
+
+```text
+docs/validation/SRV-02_api_runtime_check.sh
+```
+
+현재 SRV-02 실측 결과:
+
+```text
+robots API         HTTP 200  0.003355s
+robot detail API   HTTP 200  0.002503s
+events API         HTTP 200  0.003848s
+```
+
+모두 SRV-02 기준인 **1.0초 미만**을 충족했다.
+
+> MissionState ingestion은 SRV-02 ROS 2 test publisher로 경로를 검증했다. 실제 `mission_manager` publisher와의 통합은 MIS 통합 시험에서 별도로 검증한다.
 
 ---
 
-# 1. ROS ↔ MQTT Bridge
+# 4. PC3 — idc_bridge
 
-## 실행 위치
+## 4-1. 패키지 확인 및 빌드
 
-**PC3 — Main / Control ROS PC**
-
-```text
-ROS 2
-  ↓
-idc_bridge
-  ↓
-MQTT
-  ↓
-PC4 Mosquitto
-```
-
-`idc_bridge`는 ROS 2 그래프에 참여하면서 로봇 데이터를 MQTT 메시지로 변환한다.
-
-현재 이관된 `mqtt_bridge.py`는 기존 `idc_server/mqtt_bridge.py`의 기능을 보존한다.
-
-현재 구현 범위:
-
-```text
-/robotN/battery_state
-        ↓
-idc_bridge/mqtt_bridge.py
-        ↓
-idc/{robot}/battery
-```
-
-BRG-01의 pose/state/event/command 확장은 후속 Bridge 통합 작업에서 진행한다.
-
----
-
-## 1-1. idc_bridge 패키지 확인
-
-워크스페이스 루트에서 실행한다.
+PC3에서 프로젝트 루트로 이동한다.
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol
-```
-
-```bash
-colcon list | grep idc_bridge
-```
-
-정상이라면 다음과 같이 `idc_bridge`가 출력되어야 한다.
-
-```text
-idc_bridge    src/idc_web/idc_bridge
-```
-
----
-
-## 1-2. idc_bridge 빌드
-
-```bash
-cd ~/collaboration/rokey_idc_patrol
-
 source /opt/ros/jazzy/setup.bash
-
-colcon build \
-  --symlink-install \
-  --packages-select idc_bridge
-```
-
-빌드 후:
-
-```bash
-source install/setup.bash
 ```
 
 패키지 확인:
 
 ```bash
-ros2 pkg list | grep idc_bridge
+colcon list | grep idc_bridge
 ```
 
 정상:
 
 ```text
-idc_bridge
+idc_bridge    src/idc_web/idc_bridge
+```
+
+빌드:
+
+```bash
+colcon build \
+  --symlink-install \
+  --packages-select idc_bridge
+
+source install/setup.bash
+```
+
+확인:
+
+```bash
+ros2 pkg list | grep '^idc_bridge$'
 ```
 
 ---
 
-## 1-3. MQTT Broker 연결 확인
-
-PC4의 Mosquitto Broker IP:
-
-```text
-192.168.107.124
-```
-
-기본 MQTT Port:
-
-```text
-1883
-```
-
-PC3에서 네트워크 연결 확인:
+## 4-2. PC4 MQTT Broker 연결 확인
 
 ```bash
 ping -c 3 192.168.107.124
 ```
 
+Broker 기본값:
+
+```text
+Host: 192.168.107.124
+Port: 1883
+```
+
 ---
 
-## 1-4. mqtt_bridge 실행
+## 4-3. idc_bridge 실행 — robot5
 
-### robot5
+> Pose를 정상 수신하려면 로봇별 `/tf`, `/tf_static` remap이 필요하다.
 
 ```bash
+cd ~/collaboration/rokey_idc_patrol
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
 ros2 run idc_bridge mqtt_bridge --ros-args \
   -p robot_namespace:=/robot5 \
   -p mqtt_broker_host:=192.168.107.124 \
-  -p mqtt_broker_port:=1883
+  -p mqtt_broker_port:=1883 \
+  -p map_frame:=map \
+  -p base_frame:=base_link \
+  -r /tf:=/robot5/tf \
+  -r /tf_static:=/robot5/tf_static
 ```
 
-현재 Bridge는 다음 흐름으로 동작한다.
+주요 흐름:
 
 ```text
 /robot5/battery_state
-        ↓
-idc_bridge
-        ↓
-idc/robot5/battery
-        ↓
-Mosquitto
+→ idc/robot5/battery
+
+/robot5/mission/state
+→ idc/robot5/mission/state
+
+map → base_link TF
+→ idc/robot5/pose
 ```
 
-### robot11
+---
+
+## 4-4. idc_bridge 실행 — robot11
+
+별도 터미널에서 실행한다.
 
 ```bash
+cd ~/collaboration/rokey_idc_patrol
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
 ros2 run idc_bridge mqtt_bridge --ros-args \
   -p robot_namespace:=/robot11 \
   -p mqtt_broker_host:=192.168.107.124 \
-  -p mqtt_broker_port:=1883
+  -p mqtt_broker_port:=1883 \
+  -p map_frame:=map \
+  -p base_frame:=base_link \
+  -r /tf:=/robot11/tf \
+  -r /tf_static:=/robot11/tf_static
 ```
 
 ---
 
-# 2. PC4 Web/Data Plane
-
-## 실행 위치
-
-**PC4 — Web / DB Server**
-
-```text
-192.168.107.124
-```
-
-PC4의 역할:
-
-```text
-Mosquitto
-   ↓
-FastAPI
-   ↓
-PostgreSQL
-   ↓
-WebSocket
-   ↓
-React
-```
-
-PC4는 ADR-001 기준으로 **ROS 2를 사용하지 않는다.**
-
-즉 PC4에서는 다음을 하지 않는다.
-
-```text
-rclpy 사용
-ROS Topic 직접 Subscribe
-ROS Service/Action 직접 호출
-DDS 참여
-```
-
-ROS 2와 Web/Data Plane 사이의 연결은 PC3의 `idc_bridge`가 담당한다.
-
----
-
-# 3. PostgreSQL
-
-## 3-1. PostgreSQL 서비스 시작
+# 5. PC4 — PostgreSQL
 
 PC4에서 실행한다.
 
 ```bash
 sudo systemctl start postgresql
-```
-
-상태 확인:
-
-```bash
-sudo systemctl status postgresql
-```
-
-간단히 확인하려면:
-
-```bash
 systemctl is-active postgresql
 ```
 
@@ -286,9 +299,7 @@ sudo systemctl enable postgresql
 
 ---
 
-# 4. Mosquitto MQTT Broker
-
-## 4-1. Mosquitto 설정 파일
+# 6. PC4 — Mosquitto MQTT Broker
 
 프로젝트 설정 파일:
 
@@ -296,49 +307,23 @@ sudo systemctl enable postgresql
 src/idc_web/backend/mosquitto.conf
 ```
 
-PC4에서 프로젝트 루트로 이동한다.
+Broker 실행:
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol
-```
 
-Mosquitto 실행:
-
-```bash
 mosquitto \
   -c src/idc_web/backend/mosquitto.conf \
   -v
 ```
 
-이 터미널은 Broker 실행용이므로 종료하지 않는다.
-
-기본 포트:
-
-```text
-1883
-```
-
----
-
-## 4-2. MQTT Broker 포트 확인
-
-다른 터미널에서:
+다른 터미널에서 포트 확인:
 
 ```bash
 ss -lntp | grep 1883
 ```
 
-또는:
-
-```bash
-sudo lsof -i :1883
-```
-
----
-
-## 4-3. MQTT 테스트
-
-구독 터미널:
+MQTT 전체 토픽 확인:
 
 ```bash
 mosquitto_sub \
@@ -348,71 +333,42 @@ mosquitto_sub \
   -v
 ```
 
-PC3에서 `idc_bridge`가 실행되고 로봇 배터리 메시지를 수신하고 있다면 다음과 같은 MQTT Topic이 확인되어야 한다.
+예상 토픽:
 
 ```text
 idc/robot5/battery
-```
-
-또는:
-
-```text
+idc/robot5/mission/state
+idc/robot5/pose
 idc/robot11/battery
+idc/robot11/mission/state
+idc/robot11/pose
 ```
 
 ---
 
-# 5. FastAPI Backend
+# 7. PC4 — FastAPI Backend
 
-## 5-1. Backend 가상환경 생성
-
-PC4에서:
+## 7-1. 가상환경 및 의존성
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol/src/idc_web/backend
-```
 
-가상환경 생성:
-
-```bash
 python3 -m venv .venv
-```
-
-활성화:
-
-```bash
 source .venv/bin/activate
-```
-
-의존성 설치:
-
-```bash
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-환경 설정 파일 생성:
+`backend`를 Python package로 import하기 위해 실행은 `src/idc_web`에서 한다.
 
 ```bash
-cp .env.example .env
+cd ~/collaboration/rokey_idc_patrol/src/idc_web
+source backend/.venv/bin/activate
 ```
 
 ---
 
-## 5-2. FastAPI 실행
-
-`backend`를 Python package로 import할 수 있도록 `src/idc_web`에서 실행한다.
-
-```bash
-cd ~/collaboration/rokey_idc_patrol/src/idc_web
-```
-
-가상환경 활성화:
-
-```bash
-source backend/.venv/bin/activate
-```
-
-FastAPI 실행:
+## 7-2. FastAPI 실행
 
 ```bash
 uvicorn backend.main:app \
@@ -420,51 +376,76 @@ uvicorn backend.main:app \
   --port 8000
 ```
 
+FastAPI lifespan에서 `MqttTelemetryConsumer`가 같이 시작되어 MQTT telemetry를 PostgreSQL에 반영한다.
+
 ---
 
-## 5-3. Health Check
+## 7-3. Health / REST 확인
 
-PC4에서:
+Health:
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
-또는 다른 PC에서:
+Robot list:
 
 ```bash
-curl http://192.168.107.124:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/robots
 ```
 
-`/api/v1/health`는 Backend, Database, MQTT Broker 연결 상태 확인에 사용한다.
+robot5:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/robots/robot5
+```
+
+Events:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/events
+```
+
+필터 예시:
+
+```bash
+curl 'http://127.0.0.1:8000/api/v1/events?type=E5&robot_id=robot5&limit=20'
+```
 
 ---
 
-# 6. React Frontend
+## 7-4. SRV-02 응답시간 검증
 
-## 6-1. Frontend 설치
+프로젝트 루트에서:
 
-PC4에서:
+```bash
+cd ~/collaboration/rokey_idc_patrol
+bash docs/validation/SRV-02_api_runtime_check.sh
+```
+
+다른 로봇을 검사하려면:
+
+```bash
+ROBOT_ID=robot11 \
+bash docs/validation/SRV-02_api_runtime_check.sh
+```
+
+기준:
+
+```text
+각 API HTTP 2xx
+응답시간 < 1.0 s
+```
+
+---
+
+# 8. PC4 — React Frontend
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol/src/idc_web/frontend
-```
-
-의존성 설치:
-
-```bash
 npm install
-```
-
----
-
-## 6-2. React 개발 서버 실행
-
-```bash
 npm run dev -- --host 0.0.0.0
 ```
-
-실행 후 터미널에 표시되는 Vite 주소로 접속한다.
 
 예:
 
@@ -472,170 +453,79 @@ npm run dev -- --host 0.0.0.0
 http://192.168.107.124:5173
 ```
 
+SRV-02는 Backend ingestion/REST까지의 작업이며, 실시간 WebSocket UI 연동은 후속 SRV 작업에서 확장한다.
+
 ---
 
-# 7. 전체 실행 순서
+# 9. 전체 실행 순서
 
-## PC4
-
-### Terminal 1 — PostgreSQL
+## PC4 Terminal 1 — PostgreSQL
 
 ```bash
 sudo systemctl start postgresql
-
 systemctl is-active postgresql
 ```
 
----
-
-### Terminal 2 — Mosquitto
+## PC4 Terminal 2 — Mosquitto
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol
-
-mosquitto \
-  -c src/idc_web/backend/mosquitto.conf \
-  -v
+mosquitto -c src/idc_web/backend/mosquitto.conf -v
 ```
 
----
-
-### Terminal 3 — FastAPI
+## PC4 Terminal 3 — FastAPI
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol/src/idc_web
-
 source backend/.venv/bin/activate
-
-uvicorn backend.main:app \
-  --host 0.0.0.0 \
-  --port 8000
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
----
+## PC4 Terminal 4 — MQTT 관측(선택)
 
-### Terminal 4 — React
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'idc/#' -v
+```
+
+## PC4 Terminal 5 — React(필요 시)
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol/src/idc_web/frontend
-
 npm run dev -- --host 0.0.0.0
 ```
 
----
-
-## PC3
-
-### Terminal — idc_bridge
-
-워크스페이스 환경 적용:
+## PC3 Terminal — robot5 bridge
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol
-
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
-```
 
-robot5:
-
-```bash
 ros2 run idc_bridge mqtt_bridge --ros-args \
   -p robot_namespace:=/robot5 \
   -p mqtt_broker_host:=192.168.107.124 \
-  -p mqtt_broker_port:=1883
+  -p mqtt_broker_port:=1883 \
+  -r /tf:=/robot5/tf \
+  -r /tf_static:=/robot5/tf_static
 ```
 
-robot11을 사용할 경우 별도 터미널:
-
-```bash
-ros2 run idc_bridge mqtt_bridge --ros-args \
-  -p robot_namespace:=/robot11 \
-  -p mqtt_broker_host:=192.168.107.124 \
-  -p mqtt_broker_port:=1883
-```
+robot11은 별도 터미널에서 namespace와 TF remap을 `/robot11`로 바꿔 실행한다.
 
 ---
 
-# 8. 전체 데이터 흐름
-
-현재 Web/Data Plane 구조:
-
-```text
-TurtleBot4
-   │
-   │ ROS 2
-   ▼
-PC3
-┌────────────────────────────┐
-│ ROS 2                      │
-│                            │
-│ /robot5/...                │
-│ /robot11/...               │
-│                            │
-│ idc_bridge                 │
-└──────────────┬─────────────┘
-               │
-               │ MQTT
-               ▼
-PC4
-┌────────────────────────────┐
-│ Mosquitto :1883            │
-│       │                    │
-│       ▼                    │
-│ FastAPI :8000              │
-│       │                    │
-│       ├── PostgreSQL       │
-│       │                    │
-│       └── WebSocket        │
-│               │            │
-│               ▼            │
-│           React            │
-└────────────────────────────┘
-```
-
----
-
-# 9. COLCON_IGNORE 정책
-
-`src/idc_web` 자체에는 `COLCON_IGNORE`를 두지 않는다.
+# 10. COLCON_IGNORE Policy
 
 ```text
 src/idc_web/
+├── idc_bridge      → colcon 대상
+├── backend         → COLCON_IGNORE
+└── frontend        → COLCON_IGNORE
 ```
 
-이유:
-
-```text
-colcon
-  ↓
-src/idc_web
-  ↓
-src/idc_web/idc_bridge/package.xml 발견
-  ↓
-idc_bridge ROS 패키지 빌드
-```
-
-Web-only 디렉터리는 각각 무시한다.
-
-```text
-src/idc_web/backend/COLCON_IGNORE
-src/idc_web/frontend/COLCON_IGNORE
-```
-
-결과적으로:
-
-```text
-idc_bridge  → colcon build 대상
-backend     → colcon 제외
-frontend    → colcon 제외
-```
-
-검증:
+확인:
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol
-
 colcon list
 ```
 
@@ -643,76 +533,56 @@ colcon list
 
 ---
 
-# 10. Architecture Boundary
+# 11. Current Bridge Scope vs Follow-up
 
-소스 관리:
-
-```text
-src/idc_web/
-├── idc_bridge
-├── backend
-└── frontend
-```
-
-실행 환경:
+현재 구현 완료:
 
 ```text
-PC3
-└── idc_bridge
-     └── ROS 2 ↔ MQTT
-
-PC4
-├── Mosquitto
-├── FastAPI
-├── PostgreSQL
-└── React
+Battery                    ✅
+Mission State              ✅
+Pose (2 Hz)                ✅
+PC4 MQTT → PostgreSQL      ✅
+GET /api/v1/robots         ✅
+GET /api/v1/robots/{id}    ✅
+GET /api/v1/events         ✅
+SRV-02 API < 1s 검증       ✅
 ```
 
-즉 `idc_bridge`가 `idc_web` 디렉터리 안에 존재하더라도 PC4에서 ROS 2를 실행한다는 의미가 아니다.
+후속 Bridge/SRV 작업:
 
-Repository grouping과 Deployment boundary는 서로 독립적이다.
+```text
+Nav Status                 ⬜ BRG-01 잔여
+SecurityEvent ROS→MQTT     ⬜ 후속 통합
+Web→ROS Command            ⬜ BRG-02
+Command Result             ⬜ BRG-02
+Bridge Status / retained LWT ⬜ BRG-03
+Broker outage local queue  ⬜ BRG-03
+Evidence / Snapshot        ⬜ SRV-04 + BRG-02
+WebSocket realtime push    ⬜ SRV-03/SRV-05 계열
+```
+
+따라서 **SRV-02는 완료 기준을 충족하지만 BRG-01 전체가 완료된 것은 아니다.**
 
 ---
 
-# 11. Current Bridge Scope
-
-현재 `mqtt_bridge.py`는 기존 `idc_server`에서 사용하던 Battery Bridge 기능을 `idc_bridge` ROS 패키지로 이관한 상태다.
-
-현재:
+# 12. Validation References
 
 ```text
-/robotN/battery_state
-        ↓
-idc_bridge
-        ↓
-idc/{robot}/battery
+docs/mqtt_interface_v1.md
+docs/validation/SRV-02_robot_telemetry_e2e_20260908.md
+docs/validation/SRV-02_api_runtime_check.sh
 ```
 
-후속 BRG-01에서는 MQTT Interface v1 계약에 맞춰 다음 항목을 확장한다.
-
-```text
-Pose
-Mission State
-Robot State
-Navigation Status
-Security Event
-Command
-Command Result
-Bridge Status
-```
-
-최종 목표 데이터 경계:
+SRV-02 기준 E2E:
 
 ```text
 ROS 2
-  ↕
-idc_bridge
-  ↕
-MQTT
-  ↕
-FastAPI
-  ↕
-PostgreSQL / WebSocket
-  ↕
-React
+→ PC3 idc_bridge
+→ MQTT
+→ PC4 Mosquitto
+→ FastAPI MQTT Consumer
+→ PostgreSQL
+→ REST
 ```
+
+이 경로의 Battery / MissionState / Pose가 검증된 상태다.
