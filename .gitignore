@@ -31,3 +31,8 @@ secrets*/
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Runtime SLAM map — PC3 -> PC4 sync, Git 금지
+maps/current/*.pgm
+maps/current/*.yaml
+maps/current/*.yml

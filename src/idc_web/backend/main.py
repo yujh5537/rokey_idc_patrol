@@ -10,6 +10,8 @@ from backend.config import settings
 from backend.database import check_database_connection, get_db
 from backend.models import Event, Robot
 from backend.mqtt_consumer import MqttTelemetryConsumer
+from backend.map_api import router as map_router
+from backend.ws_api import router as ws_router
 
 
 mqtt_telemetry_consumer = MqttTelemetryConsumer()
@@ -163,3 +165,5 @@ def root():
         "service": "idc_server",
         "status": "running",
     }
+app.include_router(map_router)
+app.include_router(ws_router)
