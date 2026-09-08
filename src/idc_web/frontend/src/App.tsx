@@ -36,6 +36,7 @@ export default function App() {
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
   const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
+  const [robots, setRobots] = useState<Robot[]>([]);
 
   useEffect(() => {
     loadSlamMap('/maps/map')
@@ -51,27 +52,166 @@ export default function App() {
       });
   }, []);
 
-  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
+  useEffect(() => {
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
 
-  const robots = useMemo<Robot[]>(() => {
-    const positions = [
-      { x: 0.35, y: 0.65 },
-      { x: 0.68, y: 0.72 },
-    ];
+    const isRobotId = (value: string): value is Robot['id'] => (
+      value === 'robot5' || value === 'robot11'
+    );
 
-    return robotSeed.map((robot, index) => {
-      const world = ratioToWorld(
-        positions[index]?.x ?? 0.5,
-        positions[index]?.y ?? 0.5,
-        meta,
-        sourceWidth,
-        sourceHeight,
+    const normalizeState = (value: string): Robot['state'] => {
+      if (value === 'PATROL' || value === 'IDLE' || value === 'RETURNING') {
+        return value;
+      }
+      return 'IDLE';
+    };
+
+    const loadInitialRobots = async () => {
+      try {
+        const response = await fetch('/api/v1/robots');
+
+        if (!response.ok) {
+          throw new Error(`robots API returned ${response.status}`);
+        }
+
+        const rows = await response.json() as Array<{
+          robot_id: string;
+          battery_percent: number | null;
+          state: string;
+          x: number | null;
+          y: number | null;
+          yaw: number | null;
+        }>;
+
+        if (disposed) return;
+
+        const liveRobots = rows.flatMap((row) => {
+          if (
+            !isRobotId(row.robot_id)
+            || row.x === null
+            || row.y === null
+            || row.yaw === null
+          ) {
+            return [];
+          }
+
+          const seed = robotSeed.find((robot) => robot.id === row.robot_id);
+
+          return [{
+            id: row.robot_id,
+            label: seed?.label ?? row.robot_id.toUpperCase(),
+            state: normalizeState(row.state),
+            battery: Math.round(row.battery_percent ?? 0),
+            x: row.x,
+            y: row.y,
+            yaw: row.yaw,
+            zone: seed?.zone ?? '',
+          } satisfies Robot];
+        });
+
+        setRobots(liveRobots);
+      } catch (error) {
+        console.error('robot API load failed', error);
+      }
+    };
+
+    const connectWebSocket = () => {
+      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      socket = new WebSocket(
+        `${scheme}://${window.location.host}/api/v1/ws`,
       );
 
-      return { ...robot, x: world.x, y: world.y };
-    });
-  }, [meta, sourceHeight, sourceWidth]);
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as {
+            event: string;
+            data: {
+              robot_id: string;
+              x: number;
+              y: number;
+              yaw: number;
+            };
+          };
+
+          const rawRobotId = message.data.robot_id;
+
+          if (
+            message.event !== 'robot_pose'
+            || !isRobotId(rawRobotId)
+          ) {
+            return;
+          }
+
+          const robotId: Robot['id'] = rawRobotId;
+
+          setRobots((current) => {
+            const exists = current.some(
+              (robot) => robot.id === robotId,
+            );
+
+            if (exists) {
+              return current.map((robot) => (
+                robot.id === robotId
+                  ? {
+                      ...robot,
+                      x: message.data.x,
+                      y: message.data.y,
+                      yaw: message.data.yaw,
+                    }
+                  : robot
+              ));
+            }
+
+            const seed = robotSeed.find(
+              (robot) => robot.id === robotId,
+            );
+
+            const newRobot: Robot = {
+              id: robotId,
+              label: seed?.label ?? robotId.toUpperCase(),
+              state: seed?.state ?? 'IDLE',
+              battery: seed?.battery ?? 0,
+              zone: seed?.zone ?? '',
+              x: message.data.x,
+              y: message.data.y,
+              yaw: message.data.yaw,
+            };
+
+            return [
+              ...current,
+              newRobot,
+            ];
+          });
+        } catch (error) {
+          console.error('robot pose websocket error', error);
+        }
+      };
+
+      socket.onclose = () => {
+        if (!disposed) {
+          reconnectTimer = window.setTimeout(connectWebSocket, 1000);
+        }
+      };
+    };
+
+    void loadInitialRobots();
+    connectWebSocket();
+
+    return () => {
+      disposed = true;
+
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
+
+      socket?.close();
+    };
+  }, []);
+
+  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
+  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
 
   const racks = useMemo<Rack[]>(() => {
     // 현재 위치는 스타일 프리뷰용 mock이다.
@@ -207,17 +347,36 @@ export default function App() {
         <aside className="side-panel">
           <section className="panel">
             <div className="panel-title">ROBOT STATUS</div>
-            {robots.map((robot) => (
-              <div className="robot-card" key={robot.id}>
-                <div className="robot-name">
-                  <strong className={robot.id}>{robot.id}</strong>
-                  <strong className={robot.id}>{robot.state}</strong>
+
+            {robotSeed.map((seed) => {
+              const robot = robots.find((item) => item.id === seed.id);
+
+              return (
+                <div className="robot-card" key={seed.id}>
+                  <div className="robot-name">
+                    <strong className={seed.id}>{seed.id}</strong>
+                    <strong className={seed.id}>
+                      {robot?.state ?? 'NO DATA'}
+                    </strong>
+                  </div>
+
+                  <div className="robot-info">
+                    <span>BATTERY</span>
+                    <span>{robot ? `${robot.battery}%` : '--'}</span>
+                  </div>
+
+                  <div className="robot-info">
+                    <span>X</span>
+                    <span>{robot ? robot.x.toFixed(2) : '--'}</span>
+                  </div>
+
+                  <div className="robot-info">
+                    <span>Y</span>
+                    <span>{robot ? robot.y.toFixed(2) : '--'}</span>
+                  </div>
                 </div>
-                <div className="robot-info"><span>BATTERY</span><span>{robot.battery}%</span></div>
-                <div className="robot-info"><span>X</span><span>{robot.x.toFixed(2)}</span></div>
-                <div className="robot-info"><span>Y</span><span>{robot.y.toFixed(2)}</span></div>
-              </div>
-            ))}
+              );
+            })}
           </section>
 
           <section className="panel">
@@ -242,7 +401,7 @@ export default function App() {
             <div className="integrity-row"><span>Canvas</span><strong className="ok">5700:3500 LOCKED</strong></div>
             <div className="integrity-row"><span>AMR</span><strong>Ø {TESTBED_RENDER_SPEC.amrDiameterMm} mm</strong></div>
             <div className="integrity-row"><span>Rack</span><strong>{TESTBED_RENDER_SPEC.rackWidthMm} × {TESTBED_RENDER_SPEC.rackHeightMm} mm</strong></div>
-            <div className="integrity-row"><span>Rack layout</span><strong>CSV PENDING</strong></div>
+            <div className="integrity-row"><span>Rack layout</span><strong className="ok">56 RACKS LOCKED</strong></div>
           </section>
         </aside>
       </main>

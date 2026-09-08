@@ -288,17 +288,54 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
   })), [racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
-  const robotMarkers = useMemo(() => robots.map((robot) => ({
-    robot,
-    pos: worldToDisplayPercent(
-      robot.x,
-      robot.y,
-      meta,
-      sourceWidth,
-      sourceHeight,
-      rotatePortrait,
-    ),
-  })), [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
+  const robotMarkers = useMemo(() => {
+    const robot5 = robots.find((robot) => robot.id === 'robot5');
+    const robot11 = robots.find((robot) => robot.id === 'robot11');
+
+    return [
+      ...(robot5 ? [{
+        robot: robot5,
+        live: true,
+        pos: worldToDisplayPercent(
+          robot5.x,
+          robot5.y,
+          meta,
+          sourceWidth,
+          sourceHeight,
+          rotatePortrait,
+        ),
+      }] : []),
+
+      ...(robot11 ? [{
+        robot: robot11,
+        live: true,
+        pos: worldToDisplayPercent(
+          robot11.x,
+          robot11.y,
+          meta,
+          sourceWidth,
+          sourceHeight,
+          rotatePortrait,
+        ),
+      }] : [{
+        robot: {
+          id: 'robot11' as const,
+          label: 'AMR 11',
+          state: 'IDLE' as const,
+          battery: 0,
+          x: 0,
+          y: 0,
+          yaw: 0,
+          zone: '',
+        },
+        live: false,
+        pos: {
+          left: '82%',
+          top: '15%',
+        },
+      }]),
+    ];
+  }, [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
@@ -352,6 +389,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
             {rackMarkers.map(({ rack, pos }) => {
               const palette = rackPalette(rack.state);
               const rotation = ((rack.screenRotateDeg ?? 0) + 90) % 360;
+              const lightOnLeft = rotation === 180;
 
               return (
                 <div
@@ -402,8 +440,10 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                   <span
                     style={{
                       position: 'absolute',
-                      left: `${rackWidthPx / 2 + 5}px`,
-                      top: '-5px',
+                      left: lightOnLeft ? 'auto' : `${rackWidthPx / 2 + 5}px`,
+                      right: lightOnLeft ? `${rackWidthPx / 2 + 5}px` : 'auto',
+                      top: '0',
+                      transform: 'translateY(-50%)',
                       color: palette.label,
                       font: '700 7px monospace',
                       whiteSpace: 'nowrap',
@@ -423,7 +463,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
               </div>
             ))}
 
-            {robotMarkers.map(({ robot, pos }) => {
+            {robotMarkers.map(({ robot, pos, live }) => {
               const radarSize = amrDiameterPx * 1.55;
               const headingLength = amrDiameterPx * 0.95;
 
@@ -431,7 +471,13 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                 <div
                   key={robot.id}
                   className={`robot-marker ${robot.id}`}
-                  style={{ ...pos, width: 0, height: 0 }}
+                  style={{
+                    ...pos,
+                    width: 0,
+                    height: 0,
+                    opacity: live ? 1 : 0.45,
+                    filter: live ? 'none' : 'grayscale(0.7)',
+                  }}
                 >
                   <div
                     className="robot-radar"
@@ -470,7 +516,11 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                     }}
                   >
                     <strong>{robot.id.toUpperCase()}</strong>
-                    <small>{robot.state} · BAT {robot.battery}%</small>
+                    <small>
+                      {live
+                        ? `${robot.state} · BAT ${robot.battery}%`
+                        : 'NO DATA · POSITION UNKNOWN'}
+                    </small>
                   </div>
                 </div>
               );
