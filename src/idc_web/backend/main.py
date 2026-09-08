@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
 import socket
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.database import check_database_connection, get_db
-from backend.models import Robot
+from backend.models import Event, Robot
 from backend.mqtt_consumer import MqttTelemetryConsumer
 
 
@@ -57,6 +57,26 @@ def robot_to_dict(robot: Robot) -> dict:
     }
 
 
+def event_to_dict(event: Event) -> dict:
+    return {
+        "event_id": event.id,
+        "run_id": event.run_id,
+        "type": event.type,
+        "severity": event.severity,
+        "zone_id": event.zone_id,
+        "rack_id": event.rack_id,
+        "robot_id": event.robot_id,
+        "x": event.x,
+        "y": event.y,
+        "first_ts": event.first_ts,
+        "last_ts": event.last_ts,
+        "status": event.status,
+        "acked_by": event.acked_by,
+        "acked_at": event.acked_at,
+        "detail_json": event.detail_json,
+    }
+
+
 @app.get("/api/v1/health")
 def health():
     try:
@@ -101,6 +121,40 @@ def get_robot(robot_id: str, db: Session = Depends(get_db)):
             detail="robot not found",
         )
     return robot_to_dict(robot)
+
+
+@app.get("/api/v1/events")
+def list_events(
+    event_type: str | None = Query(default=None, alias="type"),
+    status: str | None = None,
+    robot_id: str | None = None,
+    rack_id: str | None = None,
+    zone_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    statement = select(Event)
+
+    if event_type is not None:
+        statement = statement.where(Event.type == event_type)
+    if status is not None:
+        statement = statement.where(Event.status == status)
+    if robot_id is not None:
+        statement = statement.where(Event.robot_id == robot_id)
+    if rack_id is not None:
+        statement = statement.where(Event.rack_id == rack_id)
+    if zone_id is not None:
+        statement = statement.where(Event.zone_id == zone_id)
+
+    events = db.scalars(
+        statement.order_by(
+            Event.last_ts.desc().nullslast(),
+            Event.first_ts.desc().nullslast(),
+            Event.id.desc(),
+        ).limit(limit)
+    ).all()
+
+    return [event_to_dict(event) for event in events]
 
 
 @app.get("/")
