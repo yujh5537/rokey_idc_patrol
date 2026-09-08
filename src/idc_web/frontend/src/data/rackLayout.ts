@@ -13,6 +13,8 @@ export interface RackLayoutRow {
 
 const TESTBED_LENGTH_MM = 5700;
 const TESTBED_WIDTH_MM = 3500;
+const RACK_THICKNESS_MM = 85;
+const R08_R49_LEFT_SHIFT_MM = RACK_THICKNESS_MM * 3;
 
 function toFiniteNumber(value: string, field: string, row: number) {
   const parsed = Number(value);
@@ -75,7 +77,7 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
     }
 
     // Verify that the supplied generalized CSV still matches the mechanical
-    // coordinate transform before applying the requested UI-only vertical flip.
+    // coordinate transform before applying UI-only corrections.
     const tolerance = 0.002;
     if (
       Math.abs(baseScreenXFrac - csvXFrac) > tolerance ||
@@ -84,11 +86,23 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
       throw new Error(`Rack ${arucoId} generalized fractions do not match the 90deg-left map transform`);
     }
 
-    // Requested display correction: keep left/right as-is and flip only top/bottom.
+    // Requested display correction #1: keep left/right as-is and flip top/bottom.
     // MapView's real-PGM path uses xM for the vertical screen axis, so mirror xM
     // across the 3500mm testbed width as well. This produces the same Y flip there.
     const displayXMm = TESTBED_WIDTH_MM - xMm;
     const displayScreenYFrac = 1 - baseScreenYFrac;
+
+    // Requested display correction #2: move R08 through R49 three rack-width
+    // cells to the left. One cell is the rack thickness (85mm), so 3 cells = 255mm.
+    // In the 90deg-left landscape transform, increasing the source y coordinate
+    // moves the marker left. Keep both preview fractions and real-PGM yM aligned.
+    const leftShiftMm = arucoId >= 8 && arucoId <= 49 ? R08_R49_LEFT_SHIFT_MM : 0;
+    const displayYMm = yMm + leftShiftMm;
+    const displayScreenXFrac = baseScreenXFrac - leftShiftMm / TESTBED_LENGTH_MM;
+
+    if (displayScreenXFrac < 0 || displayScreenXFrac > 1) {
+      throw new Error(`Rack ${arucoId} shifted screen X must be within 0..1`);
+    }
 
     seen.add(arucoId);
 
@@ -96,9 +110,9 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
       rackId: `R${String(arucoId).padStart(2, '0')}`,
       arucoId,
       xM: displayXMm / 1000,
-      yM: yMm / 1000,
+      yM: displayYMm / 1000,
       yawRad: yawDeg * Math.PI / 180,
-      screenXFrac: baseScreenXFrac,
+      screenXFrac: displayScreenXFrac,
       screenYFrac: displayScreenYFrac,
       // MapView applies the glyph +90deg compensation. Keep the CSV direction
       // untouched here so the final 85x210mm rack footprint stays vertical '|'.
