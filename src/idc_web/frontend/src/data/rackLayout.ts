@@ -62,49 +62,47 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
       throw new Error(`Invalid or duplicate rack_id ${cells[0]}`);
     }
 
-    // Original map/testbed coordinates are portrait (3500 x 5700). The React
-    // control screen rotates that map 90 degrees to the left (CCW), therefore:
-    //   landscape X = 1 - y / 5700
-    //   landscape Y = 1 - x / 3500
-    // These are the same values stored in the generalized CSV, but deriving
-    // them here makes the map/rack transform explicit and prevents accidental
-    // axis swapping when the portrait PGM is rendered landscape.
-    const screenXFrac = (TESTBED_LENGTH_MM - yMm) / TESTBED_LENGTH_MM;
-    const screenYFrac = (TESTBED_WIDTH_MM - xMm) / TESTBED_WIDTH_MM;
+    // Base transform supplied by the mechanical-team CSV for the 90deg-left
+    // landscape view of the original portrait testbed.
+    const baseScreenXFrac = (TESTBED_LENGTH_MM - yMm) / TESTBED_LENGTH_MM;
+    const baseScreenYFrac = (TESTBED_WIDTH_MM - xMm) / TESTBED_WIDTH_MM;
 
     if (
-      screenXFrac < 0 || screenXFrac > 1 ||
-      screenYFrac < 0 || screenYFrac > 1
+      baseScreenXFrac < 0 || baseScreenXFrac > 1 ||
+      baseScreenYFrac < 0 || baseScreenYFrac > 1
     ) {
       throw new Error(`Rack ${arucoId} transformed screen fractions must be within 0..1`);
     }
 
-    // The provided fractions are rounded values of the same transform. Keep a
-    // small validation guard so a future CSV with a different convention is
-    // caught immediately instead of silently drawing racks in the wrong place.
+    // Verify that the supplied generalized CSV still matches the mechanical
+    // coordinate transform before applying the requested UI-only vertical flip.
     const tolerance = 0.002;
     if (
-      Math.abs(screenXFrac - csvXFrac) > tolerance ||
-      Math.abs(screenYFrac - csvYFrac) > tolerance
+      Math.abs(baseScreenXFrac - csvXFrac) > tolerance ||
+      Math.abs(baseScreenYFrac - csvYFrac) > tolerance
     ) {
       throw new Error(`Rack ${arucoId} generalized fractions do not match the 90deg-left map transform`);
     }
+
+    // Requested display correction: keep left/right as-is and flip only top/bottom.
+    // MapView's real-PGM path uses xM for the vertical screen axis, so mirror xM
+    // across the 3500mm testbed width as well. This produces the same Y flip there.
+    const displayXMm = TESTBED_WIDTH_MM - xMm;
+    const displayScreenYFrac = 1 - baseScreenYFrac;
 
     seen.add(arucoId);
 
     return {
       rackId: `R${String(arucoId).padStart(2, '0')}`,
       arucoId,
-      xM: xMm / 1000,
+      xM: displayXMm / 1000,
       yM: yMm / 1000,
       yawRad: yawDeg * Math.PI / 180,
-      screenXFrac,
-      screenYFrac,
-      // The CSV rotation assumes an icon whose base direction is +X. Our rack
-      // glyph is drawn as a vertical 85x210 rectangle, so add 90 degrees of
-      // glyph-orientation compensation. 270->0 and 90->180 keeps the rack body
-      // vertical (|) while preserving which side/front direction it represents.
-      screenRotateDeg: normalizeDeg(csvRotateDeg + 90),
+      screenXFrac: baseScreenXFrac,
+      screenYFrac: displayScreenYFrac,
+      // MapView applies the glyph +90deg compensation. Keep the CSV direction
+      // untouched here so the final 85x210mm rack footprint stays vertical '|'.
+      screenRotateDeg: normalizeDeg(csvRotateDeg),
     };
   });
 
