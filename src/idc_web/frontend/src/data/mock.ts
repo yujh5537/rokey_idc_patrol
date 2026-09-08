@@ -14,10 +14,13 @@ export interface Robot {
 
 export interface Rack {
   id: string;
+  arucoId?: number;
   zone: string;
   x: number;
   y: number;
   state: RackState;
+  screenXFrac?: number;
+  screenYFrac?: number;
   screenRotateDeg?: number;
   severity?: 2 | 3;
   updatedAt?: string;
