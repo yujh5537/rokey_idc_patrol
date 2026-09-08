@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Rack, Robot } from '../data/mock';
 import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from '../data/testbed';
-import { worldToPercent, type MapMeta } from '../lib/coordinates';
+import type { MapMeta } from '../lib/coordinates';
 import type { PgmImage } from '../lib/pgm';
 
 export interface SecurityEvent {
@@ -27,6 +27,10 @@ interface SurfaceSize {
   height: number;
 }
 
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
 function occupancyColor(value: number, maxValue: number, meta: MapMeta) {
   const normalized = Math.max(0, Math.min(1, value / maxValue));
   const occupancy = (meta.negate ?? 0) === 0 ? 1 - normalized : normalized;
@@ -42,11 +46,11 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
   ctx.fillStyle = '#04141f';
   ctx.fillRect(0, 0, width, height);
 
-  const left = width * 0.02;
-  const right = width * 0.98;
-  const top = height * 0.02;
-  const bottom = height * 0.98;
-  const wall = Math.max(2, width * 0.004);
+  const left = width * 0.08;
+  const right = width * 0.92;
+  const top = height * 0.09;
+  const bottom = height * 0.91;
+  const wall = Math.max(4, width * 0.008);
 
   ctx.fillStyle = '#075b70';
   ctx.fillRect(left, top, wall, bottom - top);
@@ -54,52 +58,74 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
   ctx.fillRect(left, top, right - left, wall);
   ctx.fillRect(left, bottom - wall, right - left, wall);
 
-  // Rack geometry is rendered only from rack_coords_generalized.csv.
-  // Keep the demo surface neutral so preview blocks cannot be mistaken for real racks.
   ctx.fillStyle = '#102c37';
-  ctx.fillRect(0, 0, width, height * 0.025);
-  ctx.fillRect(0, height * 0.975, width, height * 0.025);
+  ctx.fillRect(0, 0, width, height * 0.035);
+  ctx.fillRect(0, height * 0.965, width, height * 0.035);
 }
 
 function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta) {
-  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
-  canvas.width = sourceWidth;
-  canvas.height = sourceHeight;
+  if (!map) {
+    canvas.width = DEMO_MAP_SIZE.width;
+    canvas.height = DEMO_MAP_SIZE.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    paintDemo(ctx, canvas.width, canvas.height);
+    return;
+  }
+
+  const rotatePortrait = map.height > map.width;
+  const outputWidth = rotatePortrait ? map.height : map.width;
+  const outputHeight = rotatePortrait ? map.width : map.height;
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-
   ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+  ctx.clearRect(0, 0, outputWidth, outputHeight);
 
-  if (!map) {
-    paintDemo(ctx, sourceWidth, sourceHeight);
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = map.width;
+  sourceCanvas.height = map.height;
+  const sourceCtx = sourceCanvas.getContext('2d');
+  if (!sourceCtx) return;
+
+  const image = sourceCtx.createImageData(map.width, map.height);
+  for (let i = 0; i < map.pixels.length; i += 1) {
+    const color = occupancyColor(map.pixels[i], map.maxValue, meta);
+    const offset = i * 4;
+    image.data[offset] = Number.parseInt(color.slice(1, 3), 16);
+    image.data[offset + 1] = Number.parseInt(color.slice(3, 5), 16);
+    image.data[offset + 2] = Number.parseInt(color.slice(5, 7), 16);
+    image.data[offset + 3] = 255;
+  }
+  sourceCtx.putImageData(image, 0, 0);
+
+  if (rotatePortrait) {
+    // Original SLAM maps are portrait. The control UI is landscape, so rotate
+    // the image 90 degrees counter-clockwise instead of stretching it.
+    ctx.save();
+    ctx.translate(0, outputHeight);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(sourceCanvas, 0, 0);
+    ctx.restore();
   } else {
-    const image = ctx.createImageData(sourceWidth, sourceHeight);
-    for (let i = 0; i < map.pixels.length; i += 1) {
-      const color = occupancyColor(map.pixels[i], map.maxValue, meta);
-      const offset = i * 4;
-      image.data[offset] = Number.parseInt(color.slice(1, 3), 16);
-      image.data[offset + 1] = Number.parseInt(color.slice(3, 5), 16);
-      image.data[offset + 2] = Number.parseInt(color.slice(5, 7), 16);
-      image.data[offset + 3] = 255;
-    }
-    ctx.putImageData(image, 0, 0);
+    ctx.drawImage(sourceCanvas, 0, 0);
   }
 
   const gradient = ctx.createRadialGradient(
-    sourceWidth / 2,
-    sourceHeight / 2,
-    Math.min(sourceWidth, sourceHeight) * 0.08,
-    sourceWidth / 2,
-    sourceHeight / 2,
-    Math.max(sourceWidth, sourceHeight) * 0.72,
+    outputWidth / 2,
+    outputHeight / 2,
+    Math.min(outputWidth, outputHeight) * 0.08,
+    outputWidth / 2,
+    outputHeight / 2,
+    Math.max(outputWidth, outputHeight) * 0.72,
   );
   gradient.addColorStop(0, 'rgba(0, 220, 255, 0.03)');
   gradient.addColorStop(1, 'rgba(1, 8, 14, 0.35)');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, sourceWidth, sourceHeight);
+  ctx.fillRect(0, 0, outputWidth, outputHeight);
 }
 
 function rackPalette(state: Rack['state']) {
@@ -149,15 +175,50 @@ function containedSurfaceSize(containerWidth: number, containerHeight: number): 
   return { width, height: width / aspect };
 }
 
-function rackScreenPosition(rack: Rack, meta: MapMeta, sourceWidth: number, sourceHeight: number) {
+function worldToDisplayPercent(
+  x: number,
+  y: number,
+  meta: MapMeta,
+  sourceWidth: number,
+  sourceHeight: number,
+  rotatePortrait: boolean,
+) {
+  const px = (x - meta.origin[0]) / meta.resolution;
+  const pyFromBottom = (y - meta.origin[1]) / meta.resolution;
+  const sourceXFrac = clamp01(px / sourceWidth);
+  const sourceYFrac = clamp01((sourceHeight - pyFromBottom) / sourceHeight);
+
+  if (rotatePortrait) {
+    // Same 90deg CCW transform as paintMap(): (u, v) -> (v, 1-u)
+    return {
+      left: `${sourceYFrac * 100}%`,
+      top: `${(1 - sourceXFrac) * 100}%`,
+    };
+  }
+
+  return {
+    left: `${sourceXFrac * 100}%`,
+    top: `${sourceYFrac * 100}%`,
+  };
+}
+
+function rackScreenPosition(
+  rack: Rack,
+  meta: MapMeta,
+  sourceWidth: number,
+  sourceHeight: number,
+  rotatePortrait: boolean,
+) {
   if (rack.screenXFrac !== undefined && rack.screenYFrac !== undefined) {
+    // rack_coords_generalized.csv is already normalized for the 5700x3500
+    // landscape control screen, so use these values directly.
     return {
       left: `${rack.screenXFrac * 100}%`,
       top: `${rack.screenYFrac * 100}%`,
     };
   }
 
-  return worldToPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight);
+  return worldToDisplayPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight, rotatePortrait);
 }
 
 export default function MapView({ map, meta, mapName, robots, racks, events }: Props) {
@@ -167,6 +228,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
   const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
+  const rotatePortrait = Boolean(map && map.height > map.width);
 
   useEffect(() => {
     if (canvasRef.current) paintMap(canvasRef.current, map, meta);
@@ -189,29 +251,37 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
-    pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight),
-  })), [racks, meta, sourceWidth, sourceHeight]);
+    pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight, rotatePortrait),
+  })), [racks, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const robotMarkers = useMemo(() => robots.flatMap((robot) => {
     if (robot.x === null || robot.y === null) return [];
     return [{
       robot,
-      pos: worldToPercent(robot.x, robot.y, meta, sourceWidth, sourceHeight),
+      pos: worldToDisplayPercent(
+        robot.x,
+        robot.y,
+        meta,
+        sourceWidth,
+        sourceHeight,
+        rotatePortrait,
+      ),
     }];
-  }), [robots, meta, sourceWidth, sourceHeight]);
+  }), [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
     if (!rack) return [];
     return [{
       event,
-      pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight),
+      pos: rackScreenPosition(rack, meta, sourceWidth, sourceHeight, rotatePortrait),
     }];
-  }), [events, racks, meta, sourceWidth, sourceHeight]);
+  }), [events, racks, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const amrDiameterPx = surfaceSize.width * TESTBED_RENDER_SPEC.amrDiameterFrac;
-  const rackWidthPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
-  const rackHeightPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackHeightFrac;
+  const rackThinPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
+  const rackLongPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackHeightFrac;
+  const robotHeadingOffset = rotatePortrait ? -Math.PI / 2 : 0;
 
   return (
     <section className="map-card">
@@ -274,8 +344,11 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                       position: 'absolute',
                       left: 0,
                       top: 0,
-                      width: `${rackWidthPx}px`,
-                      height: `${rackHeightPx}px`,
+                      // Base rack footprint is 85 x 210mm with the front on the
+                      // right edge. CSV rotations are 90/270deg, so the final
+                      // on-screen footprint is horizontal as required.
+                      width: `${rackThinPx}px`,
+                      height: `${rackLongPx}px`,
                       transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
                       transformOrigin: '50% 50%',
                       border: `1px solid ${palette.border}`,
@@ -301,7 +374,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                   <span
                     style={{
                       position: 'absolute',
-                      left: `${rackWidthPx / 2 + 5}px`,
+                      left: `${rackLongPx / 2 + 5}px`,
                       top: '-5px',
                       color: palette.label,
                       font: '700 7px monospace',
@@ -357,7 +430,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                       top: '-1.5px',
                       width: `${headingLength}px`,
                       height: '3px',
-                      transform: `rotate(${-(robot.yaw ?? 0)}rad)`,
+                      transform: `rotate(${-(robot.yaw ?? 0) + robotHeadingOffset}rad)`,
                       transformOrigin: '0 50%',
                     }}
                   />
@@ -389,6 +462,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
         <span>RES <strong>{meta.resolution} m/px</strong></span>
         <span>ORIGIN <strong>{meta.origin[0].toFixed(3)}, {meta.origin[1].toFixed(3)}</strong></span>
         <span>CANVAS <strong>{TESTBED_RENDER_SPEC.lengthMm}:{TESTBED_RENDER_SPEC.widthMm}</strong></span>
+        <span>MAP <strong>{rotatePortrait ? 'PORTRAIT→LANDSCAPE' : 'LANDSCAPE'}</strong></span>
         <span>AMR <strong>Ø{TESTBED_RENDER_SPEC.amrDiameterMm}mm</strong></span>
         <span>RACK <strong>{TESTBED_RENDER_SPEC.rackWidthMm}×{TESTBED_RENDER_SPEC.rackHeightMm}mm</strong></span>
         <span>RACKS <strong>{racks.length}</strong></span>
