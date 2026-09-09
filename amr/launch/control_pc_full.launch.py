@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-관제 PC 자동 실행 — SLAM + TF 정렬 + map_merge + rviz (+선택 자동 언도킹)
+관제 PC 자동 실행 — TF 정렬 + map_merge + rviz (+선택 자동 언도킹)
+
+SLAM은 관제 PC 과부하 때문에 여기서 실행하지 않는다.
+각 로봇 PC 두 대에서 개별로 slam.launch.py 를 띄우고
+(robot5 → /robot5/map, robot11 → /robot11/map), 관제 PC는 그 지도를 받아
+정렬·병합만 한다.
 
 사용법:
   ros2 launch amr/launch/control_pc_full.launch.py \
@@ -11,15 +16,12 @@
     auto_undock:=true
 
 옵션: robot11_y, rviz, merge_delay, venv_activate, auto_undock, undock_timeout
-주의: 두 로봇이 도크에 물린 상태에서 실행할 것 (odom 원점 기준)
+주의: 두 로봇이 도크에 물린 상태에서, 각 로봇 PC의 SLAM이 올라온 뒤 실행할 것 (odom 원점 기준)
 """
 
-import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
@@ -35,9 +37,6 @@ def run_script(script, venv, name, extra_args=''):
 
 
 def generate_launch_description():
-    slam_launch = os.path.join(
-        get_package_share_directory('turtlebot4_navigation'), 'launch', 'slam.launch.py')
-
     p = LaunchConfiguration('params_file')
     rviz_cfg = LaunchConfiguration('rviz_config')
     use_rviz = LaunchConfiguration('rviz')
@@ -62,12 +61,6 @@ def generate_launch_description():
         DeclareLaunchArgument('undock_timeout', default_value='60.0'),
     ]
 
-    def slam(ns, wait=0.0):
-        inc = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(slam_launch),
-            launch_arguments={'namespace': f'/{ns}'}.items())
-        return TimerAction(period=wait, actions=[inc]) if wait else inc
-
     def static_tf(y, child, wait=0.0):
         node = Node(package='tf2_ros', executable='static_transform_publisher',
                     name=f'static_tf_{child.replace("/", "_")}',
@@ -78,9 +71,7 @@ def generate_launch_description():
         ["'", auto_undock, "' == 'true' and '", undock_script, "' != ''"])
 
     return LaunchDescription(args + [
-        # SLAM
-        slam('robot5'),
-        slam('robot11', wait=5.0),
+        # SLAM은 각 로봇 PC에서 실행 — 여기서는 띄우지 않는다
 
         # world -> robotN/map
         static_tf('0', 'robot5/map'),
