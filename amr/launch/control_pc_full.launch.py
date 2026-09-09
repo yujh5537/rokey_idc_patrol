@@ -13,9 +13,14 @@ SLAM은 관제 PC 과부하 때문에 여기서 실행하지 않는다.
     rviz_config:=$(pwd)/amr/rviz/merged_map.rviz \
     relay_script:=$(pwd)/amr/scripts/tf_prefix_relay.py \
     undock_script:=$(pwd)/amr/scripts/auto_undock.py \
+    save_map_script:=$(pwd)/amr/scripts/save_merged_map.py \
     auto_undock:=true
 
-옵션: robot11_y, rviz, merge_delay, venv_activate, auto_undock, undock_timeout
+save_map_script 를 주면, 두 로봇이 언도킹 주행을 마치고 다시 도킹을 완료했을 때
+병합 지도(/map)를 map_output_dir 에 merged_map_name 이름으로 자동 저장한다.
+
+옵션: robot11_y, rviz, merge_delay, venv_activate, auto_undock, undock_timeout,
+      save_map_script, map_output_dir, merged_map_name
 주의: 두 로봇이 도크에 물린 상태에서, 각 로봇 PC의 SLAM이 올라온 뒤 실행할 것 (odom 원점 기준)
 """
 
@@ -47,6 +52,9 @@ def generate_launch_description():
     undock_script = LaunchConfiguration('undock_script')
     auto_undock = LaunchConfiguration('auto_undock')
     undock_timeout = LaunchConfiguration('undock_timeout')
+    save_map_script = LaunchConfiguration('save_map_script')
+    map_output_dir = LaunchConfiguration('map_output_dir')
+    merged_map_name = LaunchConfiguration('merged_map_name')
 
     args = [
         DeclareLaunchArgument('params_file', description='map_merge 파라미터 파일 경로'),
@@ -59,6 +67,9 @@ def generate_launch_description():
         DeclareLaunchArgument('robot11_y', default_value='4.58'),
         DeclareLaunchArgument('auto_undock', default_value='false'),
         DeclareLaunchArgument('undock_timeout', default_value='60.0'),
+        DeclareLaunchArgument('save_map_script', default_value=''),
+        DeclareLaunchArgument('map_output_dir', default_value='amr/maps'),
+        DeclareLaunchArgument('merged_map_name', default_value='merged_map'),
     ]
 
     def static_tf(y, child, wait=0.0):
@@ -69,6 +80,8 @@ def generate_launch_description():
 
     should_undock = PythonExpression(
         ["'", auto_undock, "' == 'true' and '", undock_script, "' != ''"])
+
+    should_save_map = PythonExpression(["'", save_map_script, "' != ''"])
 
     return LaunchDescription(args + [
         # SLAM은 각 로봇 PC에서 실행 — 여기서는 띄우지 않는다
@@ -98,5 +111,17 @@ def generate_launch_description():
                      'if [ -n "$1" ]; then source "$1" 2>/dev/null; fi; exec python3 "$0" --timeout "$2"',
                      undock_script, venv, undock_timeout],
                 name='auto_undock', output='screen', condition=IfCondition(should_undock)),
+        ]),
+
+        # 병합 지도 자동 저장 (save_map_script 경로가 있을 때만)
+        # 두 로봇이 언도킹 주행 후 다시 도킹을 마치면 /map 을 저장한다
+        TimerAction(period=delay, actions=[
+            ExecuteProcess(
+                cmd=['bash', '-c',
+                     'if [ -n "$1" ]; then source "$1" 2>/dev/null; fi; '
+                     'exec python3 "$0" --output-dir "$2" --name "$3"',
+                     save_map_script, venv, map_output_dir, merged_map_name],
+                name='save_merged_map', output='screen',
+                condition=IfCondition(should_save_map)),
         ]),
     ])
