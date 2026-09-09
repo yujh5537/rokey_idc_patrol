@@ -21,6 +21,8 @@ TRUNK_X          = 1.40            # 서버실 진입 트렁크(통로 입구) x
 DOCK_X, DOCK_R   = 0.27, 0.15      # 도크 원 중심 x(벽에서 27cm), 반지름
 DOCK_YAW         = math.pi         # 도킹 상태 로봇 전면 -x
 MARGIN           = 0.50            # 지도 바깥 unknown 여백
+ROBOT_R          = 0.171                       # Create 3 반경
+MAX_INSPECT_X    = BOARD_W - ROBOT_R - 0.05    # 3.279 → 오른쪽 벽 여유 5cm. col 1 점검 pose 클램프
 
 # 랙 줄 정의: (도면 y_top 시작, 면 방향) — 면 방향 '-y'=아래(도면 기준 통로 쪽), '+y'=위
 # 8줄, 위에서 아래로. ①단독 ②③등맞대기 ④⑤등맞대기 ⑥⑦등맞대기 ⑧단독
@@ -59,13 +61,17 @@ def build_racks():
             cx, cy = (x_lo + x_hi) / 2, (y_lo + y_hi) / 2
             # 랙 면: 'down'(도면 아래)=ROS -y 방향으로 면함 → 로봇은 그 아래(작은 y)에서 +y(π/2)를 봄
             face_ros = '-y' if face == 'down' else '+y'
-            yaw = math.pi / 2 if face_ros == '-y' else -math.pi / 2
             face_y = y_lo if face_ros == '-y' else y_hi
             assert abs(abs(aisle_y - face_y) - AISLE_OFFSET) < 1e-6, (rid, aisle_y, face_y)
+            # col 1은 랙이 오른쪽 벽에 붙어 있어 랙 x 중심에 로봇이 설 수 없음 → x 클램프 후
+            # yaw를 랙 면 중심 지향으로 계산. 비클램프 시 atan2(±0.615, 0) = ±π/2 그대로.
+            ix = min(cx, MAX_INSPECT_X)
+            yaw = math.atan2(face_y - aisle_y, cx - ix)
+            oblique = ix < cx
             racks.append(dict(
                 rack_id=f'R{rid:02d}', aruco_id=rid, zone_id=zone, row=row_i + 1, col=k + 1,
                 center=(round(cx, 4), round(cy, 4)), bbox=(round(x_lo,4), round(y_lo,4), round(x_hi,4), round(y_hi,4)),
-                face=face_ros, inspect=(round(cx, 4), round(aisle_y, 4), round(yaw, 4))))
+                face=face_ros, inspect=(round(ix, 4), round(aisle_y, 4), round(yaw, 4)), oblique=oblique))
             rid += 1
     return racks
 
@@ -75,10 +81,10 @@ def render(racks, res):
     ox, oy = -MARGIN, -MARGIN                                # 지도 원점(좌하단, m)
     def cell(x, y):                                          # ROS m → 픽셀 (row 0 = 위)
         return int((x - ox) / res), H - 1 - int((y - oy) / res)
-    def fill(x0, y0, x1, y1, val):
-        c0, r1 = cell(x0, y0); c1, r0 = cell(x1, y1)
-        c1 = max(c1, c0); r1 = max(r1, r0)
-        img[r0:r1+1, c0:c1+1] = val
+    def fill(x0, y0, x1, y1, val):                           # 반열림 [x0, x1) — 경계 셀 중복 방지
+        c0 = int((x0 - ox) / res);            c1 = math.ceil((x1 - ox) / res) - 1
+        r0 = H - math.ceil((y1 - oy) / res);  r1 = H - 1 - int((y0 - oy) / res)
+        img[r0:max(r1, r0)+1, c0:max(c1, c0)+1] = val
     t = max(WALL_T, res)                                     # 최소 1셀
     fill(0, 0, BOARD_W, BOARD_H, 254)                        # 보드 내부 free
     fill(0, 0, BOARD_W, t, 0); fill(0, BOARD_H - t, BOARD_W, BOARD_H, 0)
@@ -119,7 +125,8 @@ free_thresh: 0.25
     # racks.yaml
     L = ['# racks.yaml — MAP-02 산출물. 좌표계: 보드 좌하단 원점, x→, y↑, m, yaw rad (ROS map 프레임)',
          '# rack_id = "R" + aruco_id 2자리. row 1 = 도면 최상단 줄. col 1 = 오른쪽 벽 쪽.',
-         '# face: 랙 도어가 향하는 방향. inspect_pose: 통로 중심선(랙 면에서 0.615m)에서 랙 정면을 보는 pose.',
+         '# face: 랙 도어가 향하는 방향. inspect_pose: 통로 중심선(랙 면에서 0.615m)에서 랙 도어 중심을 보는 pose.',
+         f'# col 1은 벽 간섭으로 x={MAX_INSPECT_X:.3f} 클램프, yaw는 도어 중심 지향(≈79.4°/−79.4°) — oblique: true. AC는 "카메라 광축이 도어 중심 ±3°".',
          f'board: {{width: {BOARD_W}, height: {BOARD_H}, corridor_width: {CORRIDOR_W}, mid_wall_opening_y: [{MID_WALL_OPEN[0]}, {MID_WALL_OPEN[1]}], trunk_x: {TRUNK_X}}}',
          'zones:']
     for z, yt in ZONES_TOP.items():
@@ -133,7 +140,8 @@ free_thresh: 0.25
     for r in racks:
         cx, cy = r['center']; ix, iy, iyaw = r['inspect']
         L.append(f"  - {{rack_id: {r['rack_id']}, aruco_id: {r['aruco_id']}, zone_id: {r['zone_id']}, row: {r['row']}, col: {r['col']}, "
-                 f"x: {cx:.4f}, y: {cy:.4f}, face: '{r['face']}', inspect_pose: {{x: {ix:.4f}, y: {iy:.4f}, yaw: {iyaw:.4f}}}}}")
+                 f"x: {cx:.4f}, y: {cy:.4f}, face: '{r['face']}', oblique: {str(r['oblique']).lower()}, "
+                 f"inspect_pose: {{x: {ix:.4f}, y: {iy:.4f}, yaw: {iyaw:.4f}}}}}")
     L.append('patrol_routes:   # PM 확정 순서(9/9). 마지막 후 각자 docks[robot]으로 복귀')
     for rb, seq in PATROL.items(): L.append(f'  {rb}: [{", ".join(seq)}]')
     open(f'{a.out}/racks.yaml', 'w').write('\n'.join(L) + '\n')
