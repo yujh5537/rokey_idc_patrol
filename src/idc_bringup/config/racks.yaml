@@ -1,7 +1,7 @@
 # racks.yaml — MAP-02 산출물. 좌표계: 보드 좌하단 원점, x→, y↑, m, yaw rad (ROS map 프레임)
 # rack_id = "R" + aruco_id 2자리. row 1 = 도면 최상단 줄. col 1 = 오른쪽 벽 쪽.
 # face: 랙 도어가 향하는 방향. inspect_pose: 통로 중심선(랙 면에서 0.615m)에서 랙 도어 중심을 보는 pose.
-# col 1은 벽 간섭으로 x=3.279 클램프, yaw는 도어 중심 지향(≈79.4°/−79.4°) — oblique: true. AC는 "카메라 광축이 도어 중심 ±3°".
+# col 1은 벽 간섭으로 x=3.229 클램프, yaw는 도어 중심 지향(≈74.9°/−74.9°) — oblique: true. AC는 "카메라 광축이 도어 중심 ±3°".
 board: {width: 3.5, height: 5.6, corridor_width: 0.8, mid_wall_opening_y: [2.4, 3.2], trunk_x: 1.4}
 zones:
   Z1: {aisle_y: 4.900, entry_pose: {x: 1.4, y: 4.900, yaw: 0.0}}
@@ -15,56 +15,56 @@ robot_zones:
   robot11: ['Z1', 'Z2']
   robot5: ['Z3', 'Z4']
 racks:
-  - {rack_id: R01, aruco_id: 1, zone_id: Z1, row: 1, col: 1, x: 3.3950, y: 5.5575, face: '-y', oblique: true, inspect_pose: {x: 3.2790, y: 4.9000, yaw: 1.3844}}
+  - {rack_id: R01, aruco_id: 1, zone_id: Z1, row: 1, col: 1, x: 3.3950, y: 5.5575, face: '-y', oblique: true, inspect_pose: {x: 3.2290, y: 4.9000, yaw: 1.3072}}
   - {rack_id: R02, aruco_id: 2, zone_id: Z1, row: 1, col: 2, x: 3.1850, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 3.1850, y: 4.9000, yaw: 1.5708}}
   - {rack_id: R03, aruco_id: 3, zone_id: Z1, row: 1, col: 3, x: 2.9750, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 2.9750, y: 4.9000, yaw: 1.5708}}
   - {rack_id: R04, aruco_id: 4, zone_id: Z1, row: 1, col: 4, x: 2.7650, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 2.7650, y: 4.9000, yaw: 1.5708}}
   - {rack_id: R05, aruco_id: 5, zone_id: Z1, row: 1, col: 5, x: 2.5550, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 2.5550, y: 4.9000, yaw: 1.5708}}
   - {rack_id: R06, aruco_id: 6, zone_id: Z1, row: 1, col: 6, x: 2.3450, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 2.3450, y: 4.9000, yaw: 1.5708}}
   - {rack_id: R07, aruco_id: 7, zone_id: Z1, row: 1, col: 7, x: 2.1350, y: 5.5575, face: '-y', oblique: false, inspect_pose: {x: 2.1350, y: 4.9000, yaw: 1.5708}}
-  - {rack_id: R08, aruco_id: 8, zone_id: Z1, row: 2, col: 1, x: 3.3950, y: 4.2425, face: '+y', oblique: true, inspect_pose: {x: 3.2790, y: 4.9000, yaw: -1.3844}}
+  - {rack_id: R08, aruco_id: 8, zone_id: Z1, row: 2, col: 1, x: 3.3950, y: 4.2425, face: '+y', oblique: true, inspect_pose: {x: 3.2290, y: 4.9000, yaw: -1.3072}}
   - {rack_id: R09, aruco_id: 9, zone_id: Z1, row: 2, col: 2, x: 3.1850, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 3.1850, y: 4.9000, yaw: -1.5708}}
   - {rack_id: R10, aruco_id: 10, zone_id: Z1, row: 2, col: 3, x: 2.9750, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 2.9750, y: 4.9000, yaw: -1.5708}}
   - {rack_id: R11, aruco_id: 11, zone_id: Z1, row: 2, col: 4, x: 2.7650, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 2.7650, y: 4.9000, yaw: -1.5708}}
   - {rack_id: R12, aruco_id: 12, zone_id: Z1, row: 2, col: 5, x: 2.5550, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 2.5550, y: 4.9000, yaw: -1.5708}}
   - {rack_id: R13, aruco_id: 13, zone_id: Z1, row: 2, col: 6, x: 2.3450, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 2.3450, y: 4.9000, yaw: -1.5708}}
   - {rack_id: R14, aruco_id: 14, zone_id: Z1, row: 2, col: 7, x: 2.1350, y: 4.2425, face: '+y', oblique: false, inspect_pose: {x: 2.1350, y: 4.9000, yaw: -1.5708}}
-  - {rack_id: R15, aruco_id: 15, zone_id: Z2, row: 3, col: 1, x: 3.3950, y: 4.1575, face: '-y', oblique: true, inspect_pose: {x: 3.2790, y: 3.5000, yaw: 1.3844}}
+  - {rack_id: R15, aruco_id: 15, zone_id: Z2, row: 3, col: 1, x: 3.3950, y: 4.1575, face: '-y', oblique: true, inspect_pose: {x: 3.2290, y: 3.5000, yaw: 1.3072}}
   - {rack_id: R16, aruco_id: 16, zone_id: Z2, row: 3, col: 2, x: 3.1850, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 3.1850, y: 3.5000, yaw: 1.5708}}
   - {rack_id: R17, aruco_id: 17, zone_id: Z2, row: 3, col: 3, x: 2.9750, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 2.9750, y: 3.5000, yaw: 1.5708}}
   - {rack_id: R18, aruco_id: 18, zone_id: Z2, row: 3, col: 4, x: 2.7650, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 2.7650, y: 3.5000, yaw: 1.5708}}
   - {rack_id: R19, aruco_id: 19, zone_id: Z2, row: 3, col: 5, x: 2.5550, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 2.5550, y: 3.5000, yaw: 1.5708}}
   - {rack_id: R20, aruco_id: 20, zone_id: Z2, row: 3, col: 6, x: 2.3450, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 2.3450, y: 3.5000, yaw: 1.5708}}
   - {rack_id: R21, aruco_id: 21, zone_id: Z2, row: 3, col: 7, x: 2.1350, y: 4.1575, face: '-y', oblique: false, inspect_pose: {x: 2.1350, y: 3.5000, yaw: 1.5708}}
-  - {rack_id: R22, aruco_id: 22, zone_id: Z2, row: 4, col: 1, x: 3.3950, y: 2.8425, face: '+y', oblique: true, inspect_pose: {x: 3.2790, y: 3.5000, yaw: -1.3844}}
+  - {rack_id: R22, aruco_id: 22, zone_id: Z2, row: 4, col: 1, x: 3.3950, y: 2.8425, face: '+y', oblique: true, inspect_pose: {x: 3.2290, y: 3.5000, yaw: -1.3072}}
   - {rack_id: R23, aruco_id: 23, zone_id: Z2, row: 4, col: 2, x: 3.1850, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 3.1850, y: 3.5000, yaw: -1.5708}}
   - {rack_id: R24, aruco_id: 24, zone_id: Z2, row: 4, col: 3, x: 2.9750, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 2.9750, y: 3.5000, yaw: -1.5708}}
   - {rack_id: R25, aruco_id: 25, zone_id: Z2, row: 4, col: 4, x: 2.7650, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 2.7650, y: 3.5000, yaw: -1.5708}}
   - {rack_id: R26, aruco_id: 26, zone_id: Z2, row: 4, col: 5, x: 2.5550, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 2.5550, y: 3.5000, yaw: -1.5708}}
   - {rack_id: R27, aruco_id: 27, zone_id: Z2, row: 4, col: 6, x: 2.3450, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 2.3450, y: 3.5000, yaw: -1.5708}}
   - {rack_id: R28, aruco_id: 28, zone_id: Z2, row: 4, col: 7, x: 2.1350, y: 2.8425, face: '+y', oblique: false, inspect_pose: {x: 2.1350, y: 3.5000, yaw: -1.5708}}
-  - {rack_id: R29, aruco_id: 29, zone_id: Z3, row: 5, col: 1, x: 3.3950, y: 2.7575, face: '-y', oblique: true, inspect_pose: {x: 3.2790, y: 2.1000, yaw: 1.3844}}
+  - {rack_id: R29, aruco_id: 29, zone_id: Z3, row: 5, col: 1, x: 3.3950, y: 2.7575, face: '-y', oblique: true, inspect_pose: {x: 3.2290, y: 2.1000, yaw: 1.3072}}
   - {rack_id: R30, aruco_id: 30, zone_id: Z3, row: 5, col: 2, x: 3.1850, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 3.1850, y: 2.1000, yaw: 1.5708}}
   - {rack_id: R31, aruco_id: 31, zone_id: Z3, row: 5, col: 3, x: 2.9750, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 2.9750, y: 2.1000, yaw: 1.5708}}
   - {rack_id: R32, aruco_id: 32, zone_id: Z3, row: 5, col: 4, x: 2.7650, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 2.7650, y: 2.1000, yaw: 1.5708}}
   - {rack_id: R33, aruco_id: 33, zone_id: Z3, row: 5, col: 5, x: 2.5550, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 2.5550, y: 2.1000, yaw: 1.5708}}
   - {rack_id: R34, aruco_id: 34, zone_id: Z3, row: 5, col: 6, x: 2.3450, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 2.3450, y: 2.1000, yaw: 1.5708}}
   - {rack_id: R35, aruco_id: 35, zone_id: Z3, row: 5, col: 7, x: 2.1350, y: 2.7575, face: '-y', oblique: false, inspect_pose: {x: 2.1350, y: 2.1000, yaw: 1.5708}}
-  - {rack_id: R36, aruco_id: 36, zone_id: Z3, row: 6, col: 1, x: 3.3950, y: 1.4425, face: '+y', oblique: true, inspect_pose: {x: 3.2790, y: 2.1000, yaw: -1.3844}}
+  - {rack_id: R36, aruco_id: 36, zone_id: Z3, row: 6, col: 1, x: 3.3950, y: 1.4425, face: '+y', oblique: true, inspect_pose: {x: 3.2290, y: 2.1000, yaw: -1.3072}}
   - {rack_id: R37, aruco_id: 37, zone_id: Z3, row: 6, col: 2, x: 3.1850, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 3.1850, y: 2.1000, yaw: -1.5708}}
   - {rack_id: R38, aruco_id: 38, zone_id: Z3, row: 6, col: 3, x: 2.9750, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 2.9750, y: 2.1000, yaw: -1.5708}}
   - {rack_id: R39, aruco_id: 39, zone_id: Z3, row: 6, col: 4, x: 2.7650, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 2.7650, y: 2.1000, yaw: -1.5708}}
   - {rack_id: R40, aruco_id: 40, zone_id: Z3, row: 6, col: 5, x: 2.5550, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 2.5550, y: 2.1000, yaw: -1.5708}}
   - {rack_id: R41, aruco_id: 41, zone_id: Z3, row: 6, col: 6, x: 2.3450, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 2.3450, y: 2.1000, yaw: -1.5708}}
   - {rack_id: R42, aruco_id: 42, zone_id: Z3, row: 6, col: 7, x: 2.1350, y: 1.4425, face: '+y', oblique: false, inspect_pose: {x: 2.1350, y: 2.1000, yaw: -1.5708}}
-  - {rack_id: R43, aruco_id: 43, zone_id: Z4, row: 7, col: 1, x: 3.3950, y: 1.3575, face: '-y', oblique: true, inspect_pose: {x: 3.2790, y: 0.7000, yaw: 1.3844}}
+  - {rack_id: R43, aruco_id: 43, zone_id: Z4, row: 7, col: 1, x: 3.3950, y: 1.3575, face: '-y', oblique: true, inspect_pose: {x: 3.2290, y: 0.7000, yaw: 1.3072}}
   - {rack_id: R44, aruco_id: 44, zone_id: Z4, row: 7, col: 2, x: 3.1850, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 3.1850, y: 0.7000, yaw: 1.5708}}
   - {rack_id: R45, aruco_id: 45, zone_id: Z4, row: 7, col: 3, x: 2.9750, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 2.9750, y: 0.7000, yaw: 1.5708}}
   - {rack_id: R46, aruco_id: 46, zone_id: Z4, row: 7, col: 4, x: 2.7650, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 2.7650, y: 0.7000, yaw: 1.5708}}
   - {rack_id: R47, aruco_id: 47, zone_id: Z4, row: 7, col: 5, x: 2.5550, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 2.5550, y: 0.7000, yaw: 1.5708}}
   - {rack_id: R48, aruco_id: 48, zone_id: Z4, row: 7, col: 6, x: 2.3450, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 2.3450, y: 0.7000, yaw: 1.5708}}
   - {rack_id: R49, aruco_id: 49, zone_id: Z4, row: 7, col: 7, x: 2.1350, y: 1.3575, face: '-y', oblique: false, inspect_pose: {x: 2.1350, y: 0.7000, yaw: 1.5708}}
-  - {rack_id: R50, aruco_id: 50, zone_id: Z4, row: 8, col: 1, x: 3.3950, y: 0.0425, face: '+y', oblique: true, inspect_pose: {x: 3.2790, y: 0.7000, yaw: -1.3844}}
+  - {rack_id: R50, aruco_id: 50, zone_id: Z4, row: 8, col: 1, x: 3.3950, y: 0.0425, face: '+y', oblique: true, inspect_pose: {x: 3.2290, y: 0.7000, yaw: -1.3072}}
   - {rack_id: R51, aruco_id: 51, zone_id: Z4, row: 8, col: 2, x: 3.1850, y: 0.0425, face: '+y', oblique: false, inspect_pose: {x: 3.1850, y: 0.7000, yaw: -1.5708}}
   - {rack_id: R52, aruco_id: 52, zone_id: Z4, row: 8, col: 3, x: 2.9750, y: 0.0425, face: '+y', oblique: false, inspect_pose: {x: 2.9750, y: 0.7000, yaw: -1.5708}}
   - {rack_id: R53, aruco_id: 53, zone_id: Z4, row: 8, col: 4, x: 2.7650, y: 0.0425, face: '+y', oblique: false, inspect_pose: {x: 2.7650, y: 0.7000, yaw: -1.5708}}

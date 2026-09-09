@@ -22,7 +22,9 @@ DOCK_X, DOCK_R   = 0.27, 0.15      # 도크 원 중심 x(벽에서 27cm), 반지
 DOCK_YAW         = math.pi         # 도킹 상태 로봇 전면 -x
 MARGIN           = 0.50            # 지도 바깥 unknown 여백
 ROBOT_R          = 0.171                       # Create 3 반경
-MAX_INSPECT_X    = BOARD_W - ROBOT_R - 0.05    # 3.279 → 오른쪽 벽 여유 5cm. col 1 점검 pose 클램프
+MAX_INSPECT_X    = BOARD_W - ROBOT_R - 0.10    # 3.229 → col 1 점검 pose 클램프.
+# 마진 10cm는 실물 벽면(3.495) 기준이 아니라 지도 렌더 벽면 기준으로 잡은 값 —
+# res 0.05는 벽이 셀 경계에 맞춰 3.450까지 그려지므로 costmap 마진 = 3.450-3.229-0.171 = 5cm 확보.
 
 # 랙 줄 정의: (도면 y_top 시작, 면 방향) — 면 방향 '-y'=아래(도면 기준 통로 쪽), '+y'=위
 # 8줄, 위에서 아래로. ①단독 ②③등맞대기 ④⑤등맞대기 ⑥⑦등맞대기 ⑧단독
@@ -126,7 +128,7 @@ free_thresh: 0.25
     L = ['# racks.yaml — MAP-02 산출물. 좌표계: 보드 좌하단 원점, x→, y↑, m, yaw rad (ROS map 프레임)',
          '# rack_id = "R" + aruco_id 2자리. row 1 = 도면 최상단 줄. col 1 = 오른쪽 벽 쪽.',
          '# face: 랙 도어가 향하는 방향. inspect_pose: 통로 중심선(랙 면에서 0.615m)에서 랙 도어 중심을 보는 pose.',
-         f'# col 1은 벽 간섭으로 x={MAX_INSPECT_X:.3f} 클램프, yaw는 도어 중심 지향(≈79.4°/−79.4°) — oblique: true. AC는 "카메라 광축이 도어 중심 ±3°".',
+         f'# col 1은 벽 간섭으로 x={MAX_INSPECT_X:.3f} 클램프, yaw는 도어 중심 지향(≈74.9°/−74.9°) — oblique: true. AC는 "카메라 광축이 도어 중심 ±3°".',
          f'board: {{width: {BOARD_W}, height: {BOARD_H}, corridor_width: {CORRIDOR_W}, mid_wall_opening_y: [{MID_WALL_OPEN[0]}, {MID_WALL_OPEN[1]}], trunk_x: {TRUNK_X}}}',
          'zones:']
     for z, yt in ZONES_TOP.items():
