@@ -1,0 +1,8 @@
+# MAP-02 정적 지도 — Nav2 map_server용. 실측 도면 350x560cm (2026-09-09)
+image: idc_testbed.pgm
+mode: trinary
+resolution: 0.025
+origin: [-0.500, -0.500, 0.0]   # 지도 좌하단(m). 보드 좌하단 = (0,0)
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
