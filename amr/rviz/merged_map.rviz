@@ -1,0 +1,1112 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+      Splitter Ratio: 0.5
+    Tree Height: 419
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: MergedMap
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    - Alpha: 0.4000000059604645
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: costmap
+      Draw Behind: true
+      Enabled: false
+      Name: Robot5Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot5/map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot5/map_updates
+      Use Timestamp: false
+      Value: false
+    - Alpha: 0.4000000059604645
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: costmap
+      Draw Behind: true
+      Enabled: false
+      Name: Robot11Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot11/map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot11/map_updates
+      Use Timestamp: false
+      Value: false
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        robot11/base_footprint:
+          Value: true
+        robot11/base_link:
+          Value: true
+        robot11/bump_front_center:
+          Value: true
+        robot11/bump_front_left:
+          Value: true
+        robot11/bump_front_right:
+          Value: true
+        robot11/bump_left:
+          Value: true
+        robot11/bump_right:
+          Value: true
+        robot11/bumper:
+          Value: true
+        robot11/button_1:
+          Value: true
+        robot11/button_2:
+          Value: true
+        robot11/button_power:
+          Value: true
+        robot11/cliff_front_left:
+          Value: true
+        robot11/cliff_front_right:
+          Value: true
+        robot11/cliff_side_left:
+          Value: true
+        robot11/cliff_side_right:
+          Value: true
+        robot11/front_caster_link:
+          Value: true
+        robot11/front_left_bottom_weight_block:
+          Value: true
+        robot11/front_left_top_weight_block:
+          Value: true
+        robot11/front_left_tower_standoff:
+          Value: true
+        robot11/front_right_bottom_weight_block:
+          Value: true
+        robot11/front_right_top_weight_block:
+          Value: true
+        robot11/front_right_tower_standoff:
+          Value: true
+        robot11/imu_link:
+          Value: true
+        robot11/ir_intensity_front_center_left:
+          Value: true
+        robot11/ir_intensity_front_center_right:
+          Value: true
+        robot11/ir_intensity_front_left:
+          Value: true
+        robot11/ir_intensity_front_right:
+          Value: true
+        robot11/ir_intensity_left:
+          Value: true
+        robot11/ir_intensity_right:
+          Value: true
+        robot11/ir_intensity_side_left:
+          Value: true
+        robot11/ir_omni:
+          Value: true
+        robot11/left_wheel:
+          Value: true
+        robot11/map:
+          Value: true
+        robot11/mouse:
+          Value: true
+        robot11/oakd_camera_bracket:
+          Value: true
+        robot11/oakd_imu_frame:
+          Value: true
+        robot11/oakd_left_camera_frame:
+          Value: true
+        robot11/oakd_left_camera_optical_frame:
+          Value: true
+        robot11/oakd_link:
+          Value: true
+        robot11/oakd_rgb_camera_frame:
+          Value: true
+        robot11/oakd_rgb_camera_optical_frame:
+          Value: true
+        robot11/oakd_right_camera_frame:
+          Value: true
+        robot11/oakd_right_camera_optical_frame:
+          Value: true
+        robot11/odom:
+          Value: true
+        robot11/rear_left_tower_standoff:
+          Value: true
+        robot11/rear_right_tower_standoff:
+          Value: true
+        robot11/right_wheel:
+          Value: true
+        robot11/rplidar_link:
+          Value: true
+        robot11/shell_link:
+          Value: true
+        robot11/tower_sensor_plate:
+          Value: true
+        robot11/wheel_drop_left:
+          Value: true
+        robot11/wheel_drop_right:
+          Value: true
+        robot5/base_footprint:
+          Value: true
+        robot5/base_link:
+          Value: true
+        robot5/bump_front_center:
+          Value: true
+        robot5/bump_front_left:
+          Value: true
+        robot5/bump_front_right:
+          Value: true
+        robot5/bump_left:
+          Value: true
+        robot5/bump_right:
+          Value: true
+        robot5/bumper:
+          Value: true
+        robot5/button_1:
+          Value: true
+        robot5/button_2:
+          Value: true
+        robot5/button_power:
+          Value: true
+        robot5/cliff_front_left:
+          Value: true
+        robot5/cliff_front_right:
+          Value: true
+        robot5/cliff_side_left:
+          Value: true
+        robot5/cliff_side_right:
+          Value: true
+        robot5/front_caster_link:
+          Value: true
+        robot5/front_left_bottom_weight_block:
+          Value: true
+        robot5/front_left_top_weight_block:
+          Value: true
+        robot5/front_left_tower_standoff:
+          Value: true
+        robot5/front_right_bottom_weight_block:
+          Value: true
+        robot5/front_right_top_weight_block:
+          Value: true
+        robot5/front_right_tower_standoff:
+          Value: true
+        robot5/imu_link:
+          Value: true
+        robot5/ir_intensity_front_center_left:
+          Value: true
+        robot5/ir_intensity_front_center_right:
+          Value: true
+        robot5/ir_intensity_front_left:
+          Value: true
+        robot5/ir_intensity_front_right:
+          Value: true
+        robot5/ir_intensity_left:
+          Value: true
+        robot5/ir_intensity_right:
+          Value: true
+        robot5/ir_intensity_side_left:
+          Value: true
+        robot5/ir_omni:
+          Value: true
+        robot5/left_wheel:
+          Value: true
+        robot5/map:
+          Value: true
+        robot5/mouse:
+          Value: true
+        robot5/oakd_camera_bracket:
+          Value: true
+        robot5/oakd_imu_frame:
+          Value: true
+        robot5/oakd_left_camera_frame:
+          Value: true
+        robot5/oakd_left_camera_optical_frame:
+          Value: true
+        robot5/oakd_link:
+          Value: true
+        robot5/oakd_rgb_camera_frame:
+          Value: true
+        robot5/oakd_rgb_camera_optical_frame:
+          Value: true
+        robot5/oakd_right_camera_frame:
+          Value: true
+        robot5/oakd_right_camera_optical_frame:
+          Value: true
+        robot5/odom:
+          Value: true
+        robot5/rear_left_tower_standoff:
+          Value: true
+        robot5/rear_right_tower_standoff:
+          Value: true
+        robot5/right_wheel:
+          Value: true
+        robot5/rplidar_link:
+          Value: true
+        robot5/shell_link:
+          Value: true
+        robot5/tower_sensor_plate:
+          Value: true
+        robot5/wheel_drop_left:
+          Value: true
+        robot5/wheel_drop_right:
+          Value: true
+        world:
+          Value: true
+      Marker Scale: 0.5
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        world:
+          robot11/map:
+            robot11/odom:
+              robot11/base_footprint:
+                {}
+              robot11/base_link:
+                robot11/bump_front_center:
+                  {}
+                robot11/bump_front_left:
+                  {}
+                robot11/bump_front_right:
+                  {}
+                robot11/bump_left:
+                  {}
+                robot11/bump_right:
+                  {}
+                robot11/bumper:
+                  {}
+                robot11/button_1:
+                  {}
+                robot11/button_2:
+                  {}
+                robot11/button_power:
+                  {}
+                robot11/cliff_front_left:
+                  {}
+                robot11/cliff_front_right:
+                  {}
+                robot11/cliff_side_left:
+                  {}
+                robot11/cliff_side_right:
+                  {}
+                robot11/front_caster_link:
+                  {}
+                robot11/front_left_bottom_weight_block:
+                  {}
+                robot11/front_left_top_weight_block:
+                  {}
+                robot11/front_right_bottom_weight_block:
+                  {}
+                robot11/front_right_top_weight_block:
+                  {}
+                robot11/imu_link:
+                  {}
+                robot11/ir_intensity_front_center_left:
+                  {}
+                robot11/ir_intensity_front_center_right:
+                  {}
+                robot11/ir_intensity_front_left:
+                  {}
+                robot11/ir_intensity_front_right:
+                  {}
+                robot11/ir_intensity_left:
+                  {}
+                robot11/ir_intensity_right:
+                  {}
+                robot11/ir_intensity_side_left:
+                  {}
+                robot11/ir_omni:
+                  {}
+                robot11/mouse:
+                  {}
+                robot11/shell_link:
+                  robot11/front_left_tower_standoff:
+                    {}
+                  robot11/front_right_tower_standoff:
+                    {}
+                  robot11/oakd_camera_bracket:
+                    robot11/oakd_link:
+                      robot11/oakd_imu_frame:
+                        {}
+                      robot11/oakd_left_camera_frame:
+                        robot11/oakd_left_camera_optical_frame:
+                          {}
+                      robot11/oakd_rgb_camera_frame:
+                        robot11/oakd_rgb_camera_optical_frame:
+                          {}
+                      robot11/oakd_right_camera_frame:
+                        robot11/oakd_right_camera_optical_frame:
+                          {}
+                  robot11/rear_left_tower_standoff:
+                    {}
+                  robot11/rear_right_tower_standoff:
+                    {}
+                  robot11/rplidar_link:
+                    {}
+                  robot11/tower_sensor_plate:
+                    {}
+                robot11/wheel_drop_left:
+                  robot11/left_wheel:
+                    {}
+                robot11/wheel_drop_right:
+                  robot11/right_wheel:
+                    {}
+          robot5/map:
+            robot5/odom:
+              robot5/base_footprint:
+                {}
+              robot5/base_link:
+                robot5/bump_front_center:
+                  {}
+                robot5/bump_front_left:
+                  {}
+                robot5/bump_front_right:
+                  {}
+                robot5/bump_left:
+                  {}
+                robot5/bump_right:
+                  {}
+                robot5/bumper:
+                  {}
+                robot5/button_1:
+                  {}
+                robot5/button_2:
+                  {}
+                robot5/button_power:
+                  {}
+                robot5/cliff_front_left:
+                  {}
+                robot5/cliff_front_right:
+                  {}
+                robot5/cliff_side_left:
+                  {}
+                robot5/cliff_side_right:
+                  {}
+                robot5/front_caster_link:
+                  {}
+                robot5/front_left_bottom_weight_block:
+                  {}
+                robot5/front_left_top_weight_block:
+                  {}
+                robot5/front_right_bottom_weight_block:
+                  {}
+                robot5/front_right_top_weight_block:
+                  {}
+                robot5/imu_link:
+                  {}
+                robot5/ir_intensity_front_center_left:
+                  {}
+                robot5/ir_intensity_front_center_right:
+                  {}
+                robot5/ir_intensity_front_left:
+                  {}
+                robot5/ir_intensity_front_right:
+                  {}
+                robot5/ir_intensity_left:
+                  {}
+                robot5/ir_intensity_right:
+                  {}
+                robot5/ir_intensity_side_left:
+                  {}
+                robot5/ir_omni:
+                  {}
+                robot5/mouse:
+                  {}
+                robot5/shell_link:
+                  robot5/front_left_tower_standoff:
+                    {}
+                  robot5/front_right_tower_standoff:
+                    {}
+                  robot5/oakd_camera_bracket:
+                    robot5/oakd_link:
+                      robot5/oakd_imu_frame:
+                        {}
+                      robot5/oakd_left_camera_frame:
+                        robot5/oakd_left_camera_optical_frame:
+                          {}
+                      robot5/oakd_rgb_camera_frame:
+                        robot5/oakd_rgb_camera_optical_frame:
+                          {}
+                      robot5/oakd_right_camera_frame:
+                        robot5/oakd_right_camera_optical_frame:
+                          {}
+                  robot5/rear_left_tower_standoff:
+                    {}
+                  robot5/rear_right_tower_standoff:
+                    {}
+                  robot5/rplidar_link:
+                    {}
+                  robot5/tower_sensor_plate:
+                    {}
+                robot5/wheel_drop_left:
+                  robot5/left_wheel:
+                    {}
+                robot5/wheel_drop_right:
+                  robot5/right_wheel:
+                    {}
+      Update Interval: 0
+      Value: true
+    - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot11/robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        bump_front_center:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bumper:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        button_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        button_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        button_power:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_side_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_side_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        front_caster_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_bottom_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_top_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_bottom_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_top_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_center_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_center_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_side_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_omni:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        left_wheel:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        mouse:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_camera_bracket:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        oakd_imu_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_left_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_left_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        oakd_rgb_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_rgb_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_right_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_right_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        rear_left_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_right_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_wheel:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rplidar_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shell_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tower_sensor_plate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_drop_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        wheel_drop_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+      Mass Properties:
+        Inertia: false
+        Mass: false
+      Name: RobotModel
+      TF Prefix: robot11
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot5/robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        bump_front_center:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bump_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        bumper:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        button_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        button_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        button_power:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_side_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        cliff_side_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        front_caster_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_bottom_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_top_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_bottom_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_top_weight_block:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_center_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_center_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_front_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_intensity_side_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        ir_omni:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        left_wheel:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        mouse:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_camera_bracket:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        oakd_imu_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_left_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_left_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        oakd_rgb_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_rgb_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_right_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        oakd_right_camera_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        rear_left_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_right_tower_standoff:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_wheel:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rplidar_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shell_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tower_sensor_plate:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_drop_left:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        wheel_drop_right:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+      Mass Properties:
+        Inertia: false
+        Mass: false
+      Name: RobotModel
+      TF Prefix: robot5
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 255; 255
+      Color Transformer: ""
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: LaserScan
+      Position Transformer: ""
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot5/scan
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: world
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 0.0010000000474974513
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: -0.7016515135765076
+        Y: 1.380488395690918
+        Z: -0.050161801278591156
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 1.4950000047683716
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 3.119999885559082
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001c900000326fc0200000002fb000000100044006900730070006c006100790073010000003f000001e3000000cc00fffffffb0000000a0056006900650077007301000002280000013d000000a900ffffff000003a90000032600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Views:
+    collapsed: false
+  Width: 1400
+  X: 218
+  Y: 63
