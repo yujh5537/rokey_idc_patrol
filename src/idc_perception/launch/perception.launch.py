@@ -16,10 +16,12 @@ def generate_launch_description():
     pkg = get_package_share_directory("idc_perception")
     params = os.path.join(pkg, "config", "perception_params.yaml")
     ns = LaunchConfiguration("namespace")
-    model = LaunchConfiguration("model_path")
-    device = LaunchConfiguration("device")
-    # launch 인자는 문자열이다. int 로 선언한 파라미터에 그대로 넘기면
-    # InvalidParameterTypeException 으로 노드가 기동 실패한다 — 명시 캐스팅.
+    # launch 인자를 파라미터로 넘길 때 launch_ros 가 값을 YAML 로 해석한다.
+    #   "640" → int 640,  "0" → int 0,  "true" → bool
+    # 노드가 선언한 타입과 어긋나면 InvalidParameterTypeException 으로 기동 실패한다.
+    # device:="0" 이 int 0 으로 바뀌어 죽은 사례가 있었으므로(현장 9/10) 전부 명시 캐스팅한다.
+    model = ParameterValue(LaunchConfiguration("model_path"), value_type=str)
+    device = ParameterValue(LaunchConfiguration("device"), value_type=str)
     imgsz = ParameterValue(LaunchConfiguration("imgsz"), value_type=int)
     image_width = ParameterValue(LaunchConfiguration("image_width"), value_type=int)
     use_republish = LaunchConfiguration("use_republish")
@@ -28,7 +30,7 @@ def generate_launch_description():
         DeclareLaunchArgument("namespace", description="robot5 | robot11"),
         DeclareLaunchArgument("model_path", description="YOLO .pt 절대 경로 (레포 밖)"),
         DeclareLaunchArgument("device", default_value="0",
-                              description="CUDA 디바이스 인덱스. GPU 없으면 cpu"),
+                              description="CUDA 디바이스 인덱스(\"0\") 또는 \"cuda:0\" | \"cpu\""),
         DeclareLaunchArgument("imgsz", default_value="640"),
         DeclareLaunchArgument("image_width", default_value="704",
                               description="camera_info 수신 전 폴백 폭. 실측 OAK-D=704"),

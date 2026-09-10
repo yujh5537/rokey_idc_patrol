@@ -58,7 +58,12 @@ class YoloNode(Node):
         # 상대 토픽명 → 네임스페이스로 /robotN/... 이 됨
         self.sub = self.create_subscription(Image, "oakd/rgb/image_raw", self.on_image, qos_profile_sensor_data)
         self.pub_det = self.create_publisher(Detection2DArray, "perception/detections", 10)
-        self.pub_img = self.create_publisher(CompressedImage, "perception/image_annotated", qos_profile_sensor_data)
+        # image_transport 규약: 논리 토픽 <base> 의 compressed 전송은 <base>/compressed 로 발행한다.
+        # 접미사 없이 CompressedImage 를 <base> 에 실으면 rqt_image_view 가 마지막 세그먼트를
+        # transport 이름으로 오해해 플러그인 에러를 낸다(현장 9/10).
+        # 논리 토픽명 /robotN/perception/image_annotated 는 SDD 4.2.1 그대로다.
+        self.pub_img = self.create_publisher(
+            CompressedImage, "perception/image_annotated/compressed", qos_profile_sensor_data)
         self.get_logger().info(
             f"yolo_node up: model={model_path} conf={self.conf} imgsz={self.imgsz} device={self.device}")
 
