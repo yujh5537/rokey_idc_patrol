@@ -7,7 +7,7 @@ import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
 const DEFAULT_META: MapMeta = {
   resolution: 0.05,
-  origin: [-3.384, -4.489, 0],
+  origin: [-3.402, -0.837, 0],
   negate: 0,
   occupiedThresh: 0.65,
   freeThresh: 0.196,
