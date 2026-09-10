@@ -26,6 +26,9 @@ export interface Robot {
   y: number;
   yaw: number;
   zone: string;
+  telemetryFresh?: boolean;
+  poseLive?: boolean;
+  poseUpdatedAt?: number;
 }
 
 export interface Rack {
@@ -55,6 +58,8 @@ export const robots: Robot[] = [
     y: 0.33,
     yaw: 3.1416,
     zone: '',
+    telemetryFresh: false,
+    poseLive: false,
   },
   {
     id: 'robot11',
@@ -65,6 +70,8 @@ export const robots: Robot[] = [
     y: 4.92,
     yaw: 3.1416,
     zone: '',
+    telemetryFresh: false,
+    poseLive: false,
   },
 ];
 
