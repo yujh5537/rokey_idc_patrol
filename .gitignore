@@ -15,6 +15,9 @@ npm-debug.log*
 # 데이터·모델·rosbag — 공유 드라이브 사용, Git 금지
 data/
 datasets/
+# 탐사·병합 지도 — IDC 보안 (CONTRIBUTING 5), 드라이브로 공유
+amr/maps/
+*.pgm
 *.pt
 *.onnx
 *.db3
