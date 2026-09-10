@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from backend.database import SessionLocal
 from backend.models import Event, Robot
+from backend.mqtt_consumer import pose_is_fresh
 
 
 # PostgreSQL -> browser realtime path.
@@ -19,6 +20,11 @@ def load_robot_poses() -> list[dict]:
         poses = []
 
         for robot in robots:
+            # Never resurrect the last DB coordinate as a live pose. A pose is
+            # eligible for WebSocket delivery only while actual pose MQTT has
+            # reached this backend within the frozen 3-second freshness window.
+            if not pose_is_fresh(robot.id):
+                continue
             if robot.x is None or robot.y is None or robot.yaw is None:
                 continue
 
