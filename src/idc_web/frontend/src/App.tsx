@@ -13,6 +13,10 @@ const DEFAULT_META: MapMeta = {
   freeThresh: 0.25,
 };
 
+// Pose arrives at 2 Hz in the frozen MQTT contract. INT-00 treats a robot pose
+// as live only while samples continue to arrive within this window.
+const ROBOT_FRESHNESS_MS = 3000;
+
 const DEMO_EVENTS: SecurityEvent[] = [
   { id: 'evt-r12', type: 'E5', label: 'DOOR OPEN', rackId: 'R12', severity: 3, time: '16:07:31' },
   { id: 'evt-r27', type: 'E7', label: 'LED RED', rackId: 'R27', severity: 2, time: '16:09:04' },
@@ -32,6 +36,16 @@ interface EventRow {
   detail_json: string | null;
 }
 
+interface RobotRow {
+  robot_id: string;
+  battery_percent: number | null;
+  state: string | null;
+  x: number | null;
+  y: number | null;
+  yaw: number | null;
+  last_seen: string | null;
+}
+
 function sanitizeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
 }
@@ -46,6 +60,14 @@ function normalizeState(value: string | null | undefined): Robot['state'] {
     'RESUME', 'RETURN', 'DOCK', 'DONE', 'ERROR', 'IDLE', 'PATROL', 'RETURNING',
   ];
   return allowed.includes(value as Robot['state']) ? value as Robot['state'] : 'IDLE';
+}
+
+function timestampIsFresh(value: string | null) {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  const age = Date.now() - timestamp;
+  return age >= -5000 && age <= ROBOT_FRESHNESS_MS;
 }
 
 function eventRowToUi(row: EventRow): SecurityEvent | null {
@@ -96,7 +118,7 @@ export default function App() {
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
   const [events, setEvents] = useState<SecurityEvent[]>([]);
-  const [robots, setRobots] = useState<Robot[]>([]);
+  const [robots, setRobots] = useState<Robot[]>(() => robotSeed.map((robot) => ({ ...robot })));
 
   useEffect(() => {
     loadCurrentSlamMap()
@@ -117,47 +139,45 @@ export default function App() {
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
+    let statusTimer: number | undefined;
+    let poseExpiryTimer: number | undefined;
     let lastEventId = 0;
 
-    const loadInitialRobots = async () => {
+    const loadRobotStatus = async () => {
       const response = await fetch('/api/v1/robots');
       if (!response.ok) throw new Error(`robots API returned ${response.status}`);
 
-      const rows = await response.json() as Array<{
-        robot_id: string;
-        battery_percent: number | null;
-        state: string | null;
-        x: number | null;
-        y: number | null;
-        yaw: number | null;
-      }>;
-
+      const rows = await response.json() as RobotRow[];
       if (disposed) return;
 
-      const liveRobots = rows.flatMap((row) => {
-        if (
-          !isRobotId(row.robot_id)
-          || row.x === null
-          || row.y === null
-          || row.yaw === null
-        ) {
-          return [];
+      setRobots((current) => robotSeed.map((seed) => {
+        const row = rows.find((item) => item.robot_id === seed.id);
+        const existing = current.find((item) => item.id === seed.id);
+
+        if (!row || !isRobotId(row.robot_id)) {
+          return {
+            ...seed,
+            telemetryFresh: false,
+            poseLive: existing?.poseLive ?? false,
+            poseUpdatedAt: existing?.poseUpdatedAt,
+            x: existing?.x ?? seed.x,
+            y: existing?.y ?? seed.y,
+            yaw: existing?.yaw ?? seed.yaw,
+          };
         }
 
-        const seed = robotSeed.find((robot) => robot.id === row.robot_id);
-        return [{
-          id: row.robot_id,
-          label: seed?.label ?? row.robot_id.toUpperCase(),
+        return {
+          ...seed,
           state: normalizeState(row.state),
           battery: Math.round(row.battery_percent ?? 0),
-          x: row.x,
-          y: row.y,
-          yaw: row.yaw,
-          zone: seed?.zone ?? '',
-        } satisfies Robot];
-      });
-
-      setRobots(liveRobots);
+          telemetryFresh: timestampIsFresh(row.last_seen),
+          poseLive: existing?.poseLive ?? false,
+          poseUpdatedAt: existing?.poseUpdatedAt,
+          x: existing?.poseLive ? existing.x : seed.x,
+          y: existing?.poseLive ? existing.y : seed.y,
+          yaw: existing?.poseLive ? existing.yaw : seed.yaw,
+        };
+      }));
     };
 
     const loadInitialEvents = async () => {
@@ -197,29 +217,18 @@ export default function App() {
             if (![x, y, yaw].every(Number.isFinite)) return;
 
             const robotId: Robot['id'] = rawRobotId;
-            setRobots((current) => {
-              const exists = current.some((robot) => robot.id === robotId);
-              if (exists) {
-                return current.map((robot) => (
-                  robot.id === robotId ? { ...robot, x, y, yaw } : robot
-                ));
-              }
-
-              const seed = robotSeed.find((robot) => robot.id === robotId);
-              return [
-                ...current,
-                {
-                  id: robotId,
-                  label: seed?.label ?? robotId.toUpperCase(),
-                  state: seed?.state ?? 'IDLE',
-                  battery: seed?.battery ?? 0,
-                  zone: seed?.zone ?? '',
-                  x,
-                  y,
-                  yaw,
-                },
-              ];
-            });
+            setRobots((current) => current.map((robot) => (
+              robot.id === robotId
+                ? {
+                    ...robot,
+                    x,
+                    y,
+                    yaw,
+                    poseLive: true,
+                    poseUpdatedAt: Date.now(),
+                  }
+                : robot
+            )));
             return;
           }
 
@@ -249,11 +258,33 @@ export default function App() {
 
     const bootstrap = async () => {
       try {
-        await Promise.all([loadInitialRobots(), loadInitialEvents()]);
+        await Promise.all([loadRobotStatus(), loadInitialEvents()]);
       } catch (error) {
         console.error('initial API load failed', error);
       }
-      if (!disposed) connectWebSocket();
+
+      if (disposed) return;
+      connectWebSocket();
+
+      statusTimer = window.setInterval(() => {
+        void loadRobotStatus().catch((error) => {
+          console.error('robot status refresh failed', error);
+        });
+      }, 1000);
+
+      poseExpiryTimer = window.setInterval(() => {
+        const now = Date.now();
+        setRobots((current) => current.map((robot) => {
+          if (
+            robot.poseLive
+            && robot.poseUpdatedAt !== undefined
+            && now - robot.poseUpdatedAt > ROBOT_FRESHNESS_MS
+          ) {
+            return { ...robot, poseLive: false };
+          }
+          return robot;
+        }));
+      }, 250);
     };
 
     void bootstrap();
@@ -261,6 +292,8 @@ export default function App() {
     return () => {
       disposed = true;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      if (statusTimer !== undefined) window.clearInterval(statusTimer);
+      if (poseExpiryTimer !== undefined) window.clearInterval(poseExpiryTimer);
       socket?.close();
     };
   }, []);
@@ -345,6 +378,9 @@ export default function App() {
     });
   };
 
+  const liveRobots = robots.filter((robot) => robot.poseLive);
+  const robotLinkLive = robots.some((robot) => robot.telemetryFresh || robot.poseLive);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -352,7 +388,9 @@ export default function App() {
           <div className="eyebrow">IDC SECURITY CONTROL</div>
           <h1>Patrol Map Renderer</h1>
         </div>
-        <div className="live-badge"><span className="live-dot" />LIVE</div>
+        <div className="live-badge">
+          <span className="live-dot" />{robotLinkLive ? 'ROBOT LIVE' : 'NO ROBOT DATA'}
+        </div>
       </header>
 
       <section className="toolbar">
@@ -374,7 +412,7 @@ export default function App() {
           map={map}
           meta={meta}
           mapName={mapName}
-          robots={robots}
+          robots={liveRobots}
           racks={racks}
           events={events}
         />
@@ -385,15 +423,18 @@ export default function App() {
 
             {robotSeed.map((seed) => {
               const robot = robots.find((item) => item.id === seed.id);
+              const telemetryFresh = robot?.telemetryFresh ?? false;
+              const poseLive = robot?.poseLive ?? false;
               return (
                 <div className="robot-card" key={seed.id}>
                   <div className="robot-name">
                     <strong className={seed.id}>{seed.id}</strong>
-                    <strong className={seed.id}>{robot?.state ?? 'NO DATA'}</strong>
+                    <strong className={seed.id}>{telemetryFresh ? robot?.state ?? 'NO DATA' : 'NO DATA'}</strong>
                   </div>
-                  <div className="robot-info"><span>BATTERY</span><span>{robot ? `${robot.battery}%` : '--'}</span></div>
-                  <div className="robot-info"><span>X</span><span>{robot ? robot.x.toFixed(2) : seed.x.toFixed(2)}</span></div>
-                  <div className="robot-info"><span>Y</span><span>{robot ? robot.y.toFixed(2) : seed.y.toFixed(2)}</span></div>
+                  <div className="robot-info"><span>BATTERY</span><span>{telemetryFresh && robot ? `${robot.battery}%` : '--'}</span></div>
+                  <div className="robot-info"><span>POSE</span><span>{poseLive ? 'LIVE' : 'DOCK FALLBACK'}</span></div>
+                  <div className="robot-info"><span>X</span><span>{poseLive && robot ? robot.x.toFixed(2) : seed.x.toFixed(2)}</span></div>
+                  <div className="robot-info"><span>Y</span><span>{poseLive && robot ? robot.y.toFixed(2) : seed.y.toFixed(2)}</span></div>
                 </div>
               );
             })}
