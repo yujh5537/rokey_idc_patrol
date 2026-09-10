@@ -13,13 +13,80 @@ const DEFAULT_META: MapMeta = {
   freeThresh: 0.25,
 };
 
-const INITIAL_EVENTS: SecurityEvent[] = [
+const DEMO_EVENTS: SecurityEvent[] = [
   { id: 'evt-r12', type: 'E5', label: 'DOOR OPEN', rackId: 'R12', severity: 3, time: '16:07:31' },
   { id: 'evt-r27', type: 'E7', label: 'LED RED', rackId: 'R27', severity: 2, time: '16:09:04' },
 ];
 
+interface EventRow {
+  event_id: number;
+  type: string | null;
+  severity: number | null;
+  zone_id: string | null;
+  rack_id: string | null;
+  robot_id: string | null;
+  x: number | null;
+  y: number | null;
+  first_ts: string | null;
+  last_ts: string | null;
+  detail_json: string | null;
+}
+
 function sanitizeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+}
+
+function isRobotId(value: string): value is Robot['id'] {
+  return value === 'robot5' || value === 'robot11';
+}
+
+function normalizeState(value: string | null | undefined): Robot['state'] {
+  const allowed: Robot['state'][] = [
+    'INIT', 'UNDOCK', 'NAVIGATE', 'FACE', 'INSPECT', 'MARKER_CHECK',
+    'RESUME', 'RETURN', 'DOCK', 'DONE', 'ERROR', 'IDLE', 'PATROL', 'RETURNING',
+  ];
+  return allowed.includes(value as Robot['state']) ? value as Robot['state'] : 'IDLE';
+}
+
+function eventRowToUi(row: EventRow): SecurityEvent | null {
+  if ((row.type !== 'E5' && row.type !== 'E7') || !row.rack_id) return null;
+
+  let details: Record<string, unknown> = {};
+  if (row.detail_json) {
+    try {
+      const parsed = JSON.parse(row.detail_json);
+      if (parsed && typeof parsed === 'object') details = parsed as Record<string, unknown>;
+    } catch {
+      // detail_json is supplemental; the persisted event itself remains usable.
+    }
+  }
+
+  const severity = row.severity === 2 || row.severity === 3 ? row.severity : undefined;
+  const timestamp = row.first_ts ?? row.last_ts;
+  const eventTime = timestamp
+    ? new Date(timestamp).toLocaleTimeString()
+    : '--:--:--';
+
+  return {
+    id: `event-${row.event_id}`,
+    type: row.type,
+    label: row.type === 'E5' ? 'DOOR OPEN' : 'LED RED',
+    rackId: row.rack_id,
+    severity,
+    time: eventTime,
+    robotId: row.robot_id ?? undefined,
+    zoneId: row.zone_id ?? undefined,
+    x: row.x ?? undefined,
+    y: row.y ?? undefined,
+    basis: typeof details.basis === 'string' ? details.basis : undefined,
+    openRatio: typeof details.open_ratio === 'number' || details.open_ratio === null
+      ? details.open_ratio as number | null
+      : undefined,
+    frames: typeof details.frames === 'number' ? details.frames : undefined,
+    markerChecked: typeof details.marker_checked === 'boolean'
+      ? details.marker_checked
+      : undefined,
+  };
 }
 
 export default function App() {
@@ -28,7 +95,7 @@ export default function App() {
   const [mapName, setMapName] = useState('MAP-DEMO');
   const [imageStatus, setImageStatus] = useState('DEMO');
   const [yamlStatus, setYamlStatus] = useState('DEFAULT');
-  const [events, setEvents] = useState<SecurityEvent[]>(INITIAL_EVENTS);
+  const [events, setEvents] = useState<SecurityEvent[]>([]);
   const [robots, setRobots] = useState<Robot[]>([]);
 
   useEffect(() => {
@@ -41,7 +108,7 @@ export default function App() {
         setYamlStatus('VALID');
       })
       .catch(() => {
-        // public/maps/map.pgm + map.yaml이 없으면 DEMO 화면을 유지한다.
+        // Runtime map can also be loaded manually; keep demo canvas otherwise.
       });
   }, []);
 
@@ -49,136 +116,126 @@ export default function App() {
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
-
-    const isRobotId = (value: string): value is Robot['id'] => (
-      value === 'robot5' || value === 'robot11'
-    );
-
-    const normalizeState = (value: string): Robot['state'] => {
-      if (value === 'PATROL' || value === 'IDLE' || value === 'RETURNING') {
-        return value;
-      }
-      return 'IDLE';
-    };
+    let lastEventId = 0;
 
     const loadInitialRobots = async () => {
-      try {
-        const response = await fetch('/api/v1/robots');
+      const response = await fetch('/api/v1/robots');
+      if (!response.ok) throw new Error(`robots API returned ${response.status}`);
 
-        if (!response.ok) {
-          throw new Error(`robots API returned ${response.status}`);
+      const rows = await response.json() as Array<{
+        robot_id: string;
+        battery_percent: number | null;
+        state: string | null;
+        x: number | null;
+        y: number | null;
+        yaw: number | null;
+      }>;
+
+      if (disposed) return;
+
+      const liveRobots = rows.flatMap((row) => {
+        if (
+          !isRobotId(row.robot_id)
+          || row.x === null
+          || row.y === null
+          || row.yaw === null
+        ) {
+          return [];
         }
 
-        const rows = await response.json() as Array<{
-          robot_id: string;
-          battery_percent: number | null;
-          state: string;
-          x: number | null;
-          y: number | null;
-          yaw: number | null;
-        }>;
+        const seed = robotSeed.find((robot) => robot.id === row.robot_id);
+        return [{
+          id: row.robot_id,
+          label: seed?.label ?? row.robot_id.toUpperCase(),
+          state: normalizeState(row.state),
+          battery: Math.round(row.battery_percent ?? 0),
+          x: row.x,
+          y: row.y,
+          yaw: row.yaw,
+          zone: seed?.zone ?? '',
+        } satisfies Robot];
+      });
 
-        if (disposed) return;
+      setRobots(liveRobots);
+    };
 
-        const liveRobots = rows.flatMap((row) => {
-          if (
-            !isRobotId(row.robot_id)
-            || row.x === null
-            || row.y === null
-            || row.yaw === null
-          ) {
-            return [];
-          }
+    const loadInitialEvents = async () => {
+      const response = await fetch('/api/v1/events?limit=100');
+      if (!response.ok) throw new Error(`events API returned ${response.status}`);
 
-          const seed = robotSeed.find((robot) => robot.id === row.robot_id);
+      const rows = await response.json() as EventRow[];
+      if (disposed) return;
 
-          return [{
-            id: row.robot_id,
-            label: seed?.label ?? row.robot_id.toUpperCase(),
-            state: normalizeState(row.state),
-            battery: Math.round(row.battery_percent ?? 0),
-            x: row.x,
-            y: row.y,
-            yaw: row.yaw,
-            zone: seed?.zone ?? '',
-          } satisfies Robot];
-        });
-
-        setRobots(liveRobots);
-      } catch (error) {
-        console.error('robot API load failed', error);
-      }
+      lastEventId = rows.reduce((maxId, row) => Math.max(maxId, row.event_id), 0);
+      const mapped = rows
+        .map(eventRowToUi)
+        .filter((event): event is SecurityEvent => event !== null);
+      setEvents(mapped);
     };
 
     const connectWebSocket = () => {
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       socket = new WebSocket(
-        `${scheme}://${window.location.host}/api/v1/ws`,
+        `${scheme}://${window.location.host}/api/v1/ws?after_event_id=${lastEventId}`,
       );
 
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as {
             event: string;
-            data: {
-              robot_id: string;
-              x: number;
-              y: number;
-              yaw: number;
-            };
+            data: Record<string, unknown>;
           };
 
-          const rawRobotId = message.data.robot_id;
+          if (message.event === 'robot_pose') {
+            const rawRobotId = message.data.robot_id;
+            if (typeof rawRobotId !== 'string' || !isRobotId(rawRobotId)) return;
 
-          if (
-            message.event !== 'robot_pose'
-            || !isRobotId(rawRobotId)
-          ) {
+            const x = Number(message.data.x);
+            const y = Number(message.data.y);
+            const yaw = Number(message.data.yaw);
+            if (![x, y, yaw].every(Number.isFinite)) return;
+
+            const robotId: Robot['id'] = rawRobotId;
+            setRobots((current) => {
+              const exists = current.some((robot) => robot.id === robotId);
+              if (exists) {
+                return current.map((robot) => (
+                  robot.id === robotId ? { ...robot, x, y, yaw } : robot
+                ));
+              }
+
+              const seed = robotSeed.find((robot) => robot.id === robotId);
+              return [
+                ...current,
+                {
+                  id: robotId,
+                  label: seed?.label ?? robotId.toUpperCase(),
+                  state: seed?.state ?? 'IDLE',
+                  battery: seed?.battery ?? 0,
+                  zone: seed?.zone ?? '',
+                  x,
+                  y,
+                  yaw,
+                },
+              ];
+            });
             return;
           }
 
-          const robotId: Robot['id'] = rawRobotId;
+          if (message.event === 'event_new') {
+            const row = message.data as unknown as EventRow;
+            const mapped = eventRowToUi(row);
+            if (!mapped) return;
 
-          setRobots((current) => {
-            const exists = current.some(
-              (robot) => robot.id === robotId,
-            );
-
-            if (exists) {
-              return current.map((robot) => (
-                robot.id === robotId
-                  ? {
-                      ...robot,
-                      x: message.data.x,
-                      y: message.data.y,
-                      yaw: message.data.yaw,
-                    }
-                  : robot
-              ));
-            }
-
-            const seed = robotSeed.find(
-              (robot) => robot.id === robotId,
-            );
-
-            const newRobot: Robot = {
-              id: robotId,
-              label: seed?.label ?? robotId.toUpperCase(),
-              state: seed?.state ?? 'IDLE',
-              battery: seed?.battery ?? 0,
-              zone: seed?.zone ?? '',
-              x: message.data.x,
-              y: message.data.y,
-              yaw: message.data.yaw,
-            };
-
-            return [
-              ...current,
-              newRobot,
-            ];
-          });
+            lastEventId = Math.max(lastEventId, row.event_id);
+            setEvents((current) => (
+              current.some((item) => item.id === mapped.id)
+                ? current
+                : [mapped, ...current]
+            ));
+          }
         } catch (error) {
-          console.error('robot pose websocket error', error);
+          console.error('websocket message error', error);
         }
       };
 
@@ -189,16 +246,20 @@ export default function App() {
       };
     };
 
-    void loadInitialRobots();
-    connectWebSocket();
+    const bootstrap = async () => {
+      try {
+        await Promise.all([loadInitialRobots(), loadInitialEvents()]);
+      } catch (error) {
+        console.error('initial API load failed', error);
+      }
+      if (!disposed) connectWebSocket();
+    };
+
+    void bootstrap();
 
     return () => {
       disposed = true;
-
-      if (reconnectTimer !== undefined) {
-        window.clearTimeout(reconnectTimer);
-      }
-
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
   }, []);
@@ -206,7 +267,6 @@ export default function App() {
   const racks = useMemo<Rack[]>(() => (
     rackSeed.map((rack) => {
       const event = events.find((item) => item.rackId === rack.id);
-
       return {
         ...rack,
         state: event?.type === 'E5' ? 'DOOR_OPEN' : event?.type === 'E7' ? 'LED_RED' : 'NORMAL',
@@ -225,7 +285,6 @@ export default function App() {
       window.alert('Map image is too large. Maximum size is 20 MB.');
       return;
     }
-
     if (!file.name.toLowerCase().endsWith('.pgm')) {
       window.alert('현재 프론트 렌더러는 PGM 지도만 지원합니다.');
       return;
@@ -265,14 +324,13 @@ export default function App() {
     setMapName('MAP-DEMO');
     setImageStatus('DEMO');
     setYamlStatus('DEFAULT');
-    setEvents(INITIAL_EVENTS);
+    setEvents(DEMO_EVENTS);
   };
 
   const triggerE5 = () => {
     setEvents((current) => {
       if (current.some((event) => event.rackId === 'R03' && event.type === 'E5')) return current;
       return [
-        ...current,
         {
           id: crypto.randomUUID(),
           type: 'E5',
@@ -281,6 +339,7 @@ export default function App() {
           severity: 3,
           time: new Date().toLocaleTimeString(),
         },
+        ...current,
       ];
     });
   };
@@ -325,30 +384,15 @@ export default function App() {
 
             {robotSeed.map((seed) => {
               const robot = robots.find((item) => item.id === seed.id);
-
               return (
                 <div className="robot-card" key={seed.id}>
                   <div className="robot-name">
                     <strong className={seed.id}>{seed.id}</strong>
-                    <strong className={seed.id}>
-                      {robot?.state ?? 'NO DATA'}
-                    </strong>
+                    <strong className={seed.id}>{robot?.state ?? 'NO DATA'}</strong>
                   </div>
-
-                  <div className="robot-info">
-                    <span>BATTERY</span>
-                    <span>{robot ? `${robot.battery}%` : '--'}</span>
-                  </div>
-
-                  <div className="robot-info">
-                    <span>X</span>
-                    <span>{robot ? robot.x.toFixed(2) : '--'}</span>
-                  </div>
-
-                  <div className="robot-info">
-                    <span>Y</span>
-                    <span>{robot ? robot.y.toFixed(2) : '--'}</span>
-                  </div>
+                  <div className="robot-info"><span>BATTERY</span><span>{robot ? `${robot.battery}%` : '--'}</span></div>
+                  <div className="robot-info"><span>X</span><span>{robot ? robot.x.toFixed(2) : seed.x.toFixed(2)}</span></div>
+                  <div className="robot-info"><span>Y</span><span>{robot ? robot.y.toFixed(2) : seed.y.toFixed(2)}</span></div>
                 </div>
               );
             })}
@@ -360,10 +404,11 @@ export default function App() {
               <div className="empty">NO ACTIVE EVENTS</div>
             ) : (
               events.map((event) => (
-                <div className={`event-card l${event.severity}`} key={event.id}>
+                <div className={`event-card ${event.severity ? `l${event.severity}` : ''}`} key={event.id}>
                   <div className="event-type">⚠ {event.type} {event.label}</div>
                   <div className="event-detail">{event.rackId}</div>
                   <div className="event-detail">{event.time}</div>
+                  {event.basis && <div className="event-detail">{event.basis} · {event.frames ?? 0} frames</div>}
                 </div>
               ))
             )}
