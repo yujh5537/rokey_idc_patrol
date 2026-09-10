@@ -35,3 +35,8 @@ models/
 
 # ArUco 출력 시트 (tools/make_aruco_a4.py 산출물)
 aruco_*_a4.png
+
+# Runtime SLAM map — PC3 -> PC4 sync, Git 금지
+maps/current/*.pgm
+maps/current/*.yaml
+maps/current/*.yml
