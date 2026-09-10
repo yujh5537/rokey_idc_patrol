@@ -6,3 +6,4 @@ python-dotenv
 paho-mqtt
 python-multipart
 aiofiles
+PyYAML
