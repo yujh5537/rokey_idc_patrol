@@ -38,14 +38,27 @@
 | PC2 | 192.168.107.22 | **robot11** |
 | PC3 | 192.168.107.21 | — |
 
-WiFi `turtle07`. 시작 전 확인:
+WiFi `turtle07`.
+
+### 1-1. 확인용 터미널 환경 (모든 PC, 새 터미널마다)
+
+이 프로젝트는 **로봇 2대가 Discovery Server** 역할을 합니다. `ros2 topic hz` · `ros2 topic list`
+같은 CLI 도구는 아래 환경이 없으면 **토픽을 하나도 못 봅니다** — 노드는 정상인데 측정만
+0으로 나오는 함정이라, 카메라가 죽은 것으로 오진하기 쉽습니다.
 
 ```bash
+export ROS_DOMAIN_ID=2 ROS_SUPER_CLIENT=True \
+  ROS_DISCOVERY_SERVER=";;;;;<robot5 IP>:11811;;;;;;<robot11 IP>:11811;"
+ros2 daemon stop && ros2 daemon start
 ros2 topic list | grep -E "robot5|robot11" | head -3
 ```
 
+AMR 담당(R1)이 준비한 환경 스크립트(`~/.bashrc` 또는 `/etc/turtlebot4/setup.bash`)가 있으면
+그것을 `source` 하는 편이 확실합니다. 노드끼리는 Discovery Server가 매칭해 주므로
+**launch 터미널의 노드는 이 설정 없이도 이미 동작하고 있을 수 있습니다.**
+
 아무것도 안 나오면 `ros2 daemon stop && ros2 daemon start` 후 재시도.
-그래도 안 나오면 네트워크 문제이며 인식 코드와 무관합니다 — AMR 담당(R1)에게 문의.
+그래도 안 나오면 네트워크 문제이며 인식 코드와 무관합니다 — R1에게 문의.
 
 ---
 
@@ -131,15 +144,18 @@ ros2 launch idc_perception perception.launch.py \
 |---|---|---|
 | `namespace` | (필수) | `robot5` \| `robot11` |
 | `model_path` | (필수) | `.pt` 절대 경로. 레포 밖 |
-| `device` | `0` | CUDA 인덱스. GPU 없으면 `cpu` |
+| `device` | `0` | CUDA 인덱스(`0`) 또는 `cuda:0` \| `cpu` |
 | `imgsz` | `640` | GPU 없고 FPS가 모자라면 `480` |
 | `image_width` | `704` | `camera_info` 수신 전 폴백. 보통 건드릴 필요 없음 |
 | `use_republish` | `true` | compressed→raw 변환 포함. 별도 republish가 이미 돌면 `false` |
 
 ### 2-6. 측정 (새 터미널)
 
+**1-1의 환경 export를 이 터미널에서도 먼저 실행합니다.** 안 하면 Hz가 0으로 나옵니다.
+
 ```bash
 cd ~/idc_ws && source install/setup.bash && source ~/rokey_venv/bin/activate
+# + 1-1 의 export 3종
 
 ros2 topic hz /robot5/perception/objects                      # objects Hz — 20초 관찰 후 Ctrl+C
 nvidia-smi --query-gpu=utilization.gpu --format=csv -l 2      # GPU 실사용 확인 (Ctrl+C)
@@ -265,7 +281,11 @@ top -bn1 | head -15      # 기준 ≤50%
 
 | 증상 | 원인 | 대처 |
 |---|---|---|
-| `process has died [exit code 1]`이 2초마다 반복 | venv 미활성화 (PyTorch 못 찾음) | 2-4 재실행. **launch를 띄우는 터미널에서도** activate 필요 |
+| `process has died [exit code 1]`이 2초마다 반복 | **원인이 둘입니다.** 로그를 보고 구분하세요 | 아래 두 줄 참조 |
+| └ 로그에 `ModuleNotFoundError` / `torch` 관련 | venv 미활성화 (PyTorch 못 찾음) | 2-4 재실행. **launch를 띄우는 터미널에서도** activate 필요 |
+| └ 로그에 `InvalidParameterTypeException` | launch 인자 타입 불일치 | 코드에서 수정됨. 2-1의 리비전 확인. 옛 리비전이면 `device:=cuda:0`으로 우회 |
+| `ros2 topic hz`가 전부 0인데 노드 로그는 정상 | 확인용 터미널에 Discovery 환경 없음 | 1-1 실행 후 재시도 |
+| `rqt_image_view` 플러그인 에러 | 주석 이미지 토픽명 | 코드에서 수정됨(`.../image_annotated/compressed`). 옛 리비전이면 `rviz2` → Add → By topic 으로 대체 |
 | objects Hz 0인데 카메라 compressed는 흐름 | compressed→raw 변환의 QoS 불일치 | 코드에서 수정됨. 2-1의 커밋이 최신인지 확인 |
 | `rack_id`가 옆 랙 번호 | 화면 중앙 계산(cx) 오류 | 기동 로그의 `cx` 확인. 카메라 폭의 절반이어야 함(704 → 352) |
 | `cx`가 폭의 절반이 아님 | `camera_info` 미수신 | `ros2 topic hz /robot5/oakd/rgb/camera_info` → 안 오면 R1 |
@@ -326,3 +346,9 @@ top -bn1 | head -15      # 기준 ≤50%
 | 4 | 카메라 폭이 640이 아니라 704여서 중앙 랙을 옆 랙으로 오인 가능 | `camera_info`에서 자동 산출 — 담당자 조치 불필요 |
 | 5 | GPU 유무를 몰라 `device:=cpu`로 안내 | 기본 `device:=0` |
 | 6 | Discovery Server 구성이 문서와 실제가 다름 | 3-2 신설 |
+| 7 | `device:=0`이 int로 해석돼 노드가 기동 실패 (2번과 증상이 같아 구분이 안 됨) | launch 인자 전체를 `ParameterValue`로 명시 캐스팅 |
+| 8 | 주석 이미지 토픽이 image_transport 규약을 안 지켜 뷰어 오류 | `<base>/compressed`로 변경 |
+
+> **진단표 작성 원칙** — 7번은 2번(venv)과 **증상이 완전히 같습니다**(2초 respawn).
+> 1차 배포 문서가 이 증상의 원인을 venv 하나로 단정해 현장을 잘못된 방향으로 보냈습니다.
+> 같은 증상에 원인이 여럿이면 진단표에 **전부 적고 구분법을 함께** 씁니다.
