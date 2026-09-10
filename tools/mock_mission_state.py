@@ -6,6 +6,7 @@ import sys
 import threading
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from idc_msgs.msg import MissionState
 
@@ -46,8 +47,8 @@ def main():
     n = Mock()
     try:
         rclpy.spin(n)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass                       # q 명령·SIGTERM 은 정상 종료 경로
     finally:
         n.destroy_node()
         rclpy.try_shutdown()
