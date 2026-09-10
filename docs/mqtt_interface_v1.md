@@ -1,10 +1,10 @@
 # MQTT Interface v1 — IDC Patrol Control/Web Boundary
 
-> Status: **FROZEN v1.0**  
+> Status: **FROZEN v1.0 baseline; INT-00 mapping amendment for merged REP-03 (#9) / Vision (#12)**
 > Owner: W (Control Server / Web UI / ROS↔Web boundary)  
 > Date: 2026-09-06  
 > Related task: SRV-00  
-> ROS interface baseline: REP-02 PR #2 (`yujh5537/20260906-msgs-idc-interface-v1`)
+> ROS interface baseline: REP-02 PR #2; MissionState/SecurityEvent below follow merged REP-03 #9 and #12. Other historical sections are not a claim of v2 implementation.
 
 ## 1. Architecture boundary
 
@@ -161,22 +161,31 @@ Mapping:
 
 ### 4.2 MissionState → `idc/{robot}/mission/state`
 
-REP-02 fields are preserved exactly; no ROS interface field is added by the bridge.
+Merged REP-03 `MissionState.msg` fields are preserved. This replaces the old
+`waypoint_idx` / `waypoint_total` mapping; both ROS field access and JSON keys
+use `rack_idx` / `rack_total` (no legacy aliases).
 
 ```json
 {
   "schema_version": "1.0",
   "robot_id": "robot5",
-  "state": "PATROL",
-  "waypoint_idx": 2,
-  "waypoint_total": 8,
+  "state": "INSPECT",
+  "zone_id": "Z1",
+  "expected_rack_id": "R17",
+  "rack_idx": 3,
+  "rack_total": 28,
   "battery": 0.71,
   "note": "",
-  "received_at": "2026-09-06T07:00:00.000Z"
+  "received_at": "2026-09-10T12:00:00.000Z"
 }
 ```
 
-`MissionState.msg` has no Header in REP-02/SDD 4.2.3, so MQTT `received_at` is the PC3 bridge receive time.
+States: `INIT | UNDOCK | NAVIGATE | FACE | INSPECT | MARKER_CHECK | RESUME |
+RETURN | DOCK | DONE | ERROR`. Preserve source values, including empty zone/rack
+strings. MissionState has no Header; `received_at` is the bridge receive time.
+Topic, QoS 1, retain false, and transport `schema_version: "1.0"` stay unchanged.
+Consumers must deploy with this mapping amendment; the schema version alone
+does not distinguish the old waypoint mapping from this rack mapping.
 
 ### 4.3 TF pose → `idc/{robot}/pose`
 
@@ -245,52 +254,45 @@ This stream can be high-rate; default PC4 forwarding is OFF unless UI/debug requ
 
 ### 4.5 SecurityEvent → `idc/events/security`
 
-Frozen MVP severity mapping:
-
-```text
-E5 rack door open = severity 3 (L3)
-E7 LED anomaly    = severity 2 (L2)
-```
-
-E5 example:
+Merged REP-03 `SecurityEvent.msg` / #12 is the ROS source for this mapping.
+The bridge forwards the event result; it does not run the E5 judgement again.
 
 ```json
 {
   "schema_version": "1.0",
   "robot_id": "robot5",
   "type": "E5",
-  "severity": 3,
   "zone_id": "Z1",
-  "rack_id": "R01",
-  "position": {"x": 1.0, "y": 2.0, "z": 0.0},
-  "evidence_ids": [101],
-  "detail_json": "{\"votes\":12,\"frames\":15}",
-  "stamp": {"sec": 0, "nanosec": 0},
-  "received_at": "2026-09-06T07:00:00.000Z"
+  "rack_id": "R17",
+  "position": {"x": 2.975, "y": 4.1575, "z": 0.0},
+  "basis": "yolo",
+  "open_ratio": 0.8,
+  "frames": 15,
+  "marker_checked": false,
+  "stamp": {"sec": 123, "nanosec": 456},
+  "received_at": "2026-09-10T12:00:00.000Z"
 }
 ```
 
-E7 example:
-
-```json
-{
-  "schema_version": "1.0",
-  "robot_id": "robot5",
-  "type": "E7",
-  "severity": 2,
-  "zone_id": "Z1",
-  "rack_id": "R01",
-  "position": {"x": 1.0, "y": 2.0, "z": 0.0},
-  "evidence_ids": [102],
-  "detail_json": "{\"led\":\"red\"}",
-  "stamp": {"sec": 0, "nanosec": 0},
-  "received_at": "2026-09-06T07:00:01.000Z"
-}
-```
-
-- `detail_json` remains a JSON **string** because REP-02 defines it as `string`; the bridge must not silently change its type.
-- MQTT QoS 1; event messages are not retained.
-- PC3 bridge must queue unsent events locally during broker outage and retry after reconnect (BRG-03).
+- `basis`: `yolo | marker_missing`; `open_ratio`: float (null for NaN/Inf);
+  `frames`: integer door observation frame count; `marker_checked`: boolean.
+- `severity`, `evidence_ids`, `detail_json`, and E7 are not fields/results of the
+  current ROS event interface. Do not fabricate these in the bridge JSON.
+- `/event/events` is global. Run one bridge per robot namespace; each forwards
+  only events whose `robot_id` exactly matches its configured robot. Both use
+  `idc/events/security`, MQTT QoS 1, retain false.
+- Events are committed to a per-robot SQLite outbox before MQTT publish.
+  Default: `~/.ros/idc_bridge/{robot}-events.sqlite3`; override with ROS parameter
+  `event_queue_path`. Use separate paths for different robot instances.
+- Broker unavailable at startup: bridge still starts, receives ROS events and
+  queues them. Retry after reconnect preserves `stamp` and `received_at`.
+- Queue rows are removed only after broker PUBACK, not merely `publish()` success.
+  Delivery is at least once: a crash after PUBACK but before queue deletion can
+  replay an event. Downstream consumers must deduplicate source events.
+- PUBACK confirms broker receipt, **not** FastAPI/DB commit. This amendment does
+  not implement a backend application ACK or claim DB-outage recovery.
+- PC4 security-event ingestion and browser `event_new` are separate from this
+  bridge patch. See `docs/validation/INT-00_bridge_interface.md` for acceptance.
 
 ### 4.6 Command → ROS action/service
 

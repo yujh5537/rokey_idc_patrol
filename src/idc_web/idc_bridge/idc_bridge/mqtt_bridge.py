@@ -3,6 +3,9 @@
 from datetime import datetime, timezone
 import json
 import math
+from pathlib import Path
+from queue import Empty, SimpleQueue
+import re
 
 import paho.mqtt.client as mqtt
 import rclpy
@@ -12,7 +15,8 @@ from rclpy.time import Time
 from sensor_msgs.msg import BatteryState
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from idc_msgs.msg import MissionState
+from idc_msgs.msg import MissionState, SecurityEvent
+from idc_bridge.event_outbox import EventOutbox
 
 
 def _finite_or_none(value, digits=None):
@@ -52,6 +56,7 @@ class MqttBridge(Node):
         self.declare_parameter('mqtt_broker_port', 1883)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter('event_queue_path', '')
 
         robot_namespace = (
             self.get_parameter('robot_namespace')
@@ -92,6 +97,9 @@ class MqttBridge(Node):
                 'Example: -p robot_namespace:=/robot5'
             )
 
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', robot_namespace):
+            raise ValueError('robot_namespace must be a single robot identifier')
+
         if not self.map_frame:
             raise ValueError('map_frame parameter must not be empty')
 
@@ -111,6 +119,14 @@ class MqttBridge(Node):
         self.mqtt_battery_topic = f'idc/{self.robot_id}/battery'
         self.mqtt_mission_state_topic = f'idc/{self.robot_id}/mission/state'
         self.mqtt_pose_topic = f'idc/{self.robot_id}/pose'
+        self.ros_security_event_topic = '/event/events'
+        self.mqtt_security_event_topic = 'idc/events/security'
+        queue_path = self.get_parameter('event_queue_path').value or (
+            Path.home() / '.ros' / 'idc_bridge' / f'{self.robot_id}-events.sqlite3'
+        )
+        self.event_outbox = EventOutbox(queue_path)
+        self.event_inflight = None
+        self.event_acks = SimpleQueue()
 
         # 최신 ROS BatteryState를 MQTT 1 Hz로 재전송하기 위한 캐시.
         # received_at/stamp는 새 ROS 메시지를 받은 시점의 값을 그대로 보존한다.
@@ -121,8 +137,11 @@ class MqttBridge(Node):
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=f'idc-{self.robot_id}-bridge'
         )
+        self.mqtt_client.on_publish = self._on_mqtt_publish
 
-        self.mqtt_client.connect(
+        self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
+        # A broker outage at startup must not stop ROS event collection.
+        self.mqtt_client.connect_async(
             broker_host,
             broker_port,
             keepalive=60
@@ -145,6 +164,14 @@ class MqttBridge(Node):
             self.mission_state_callback,
             10,
         )
+
+        self.security_event_subscription = self.create_subscription(
+            SecurityEvent,
+            self.ros_security_event_topic,
+            self.security_event_callback,
+            10,
+        )
+        self.event_publish_timer = self.create_timer(0.1, self.publish_pending_event)
 
         # TF map -> base_link pose bridge.
         # /robotN/tf와 /robotN/tf_static은 실행 시 remap해서 로봇별로 격리한다.
@@ -169,6 +196,8 @@ class MqttBridge(Node):
             f'ROS2 → MQTT Bridge started: '
             f'battery={self.ros_battery_topic} → {self.mqtt_battery_topic} (1 Hz), '
             f'mission={self.ros_mission_state_topic} → {self.mqtt_mission_state_topic}, '
+            f'events={self.ros_security_event_topic} → {self.mqtt_security_event_topic} '
+            f'(robot_id={self.robot_id}), '
             f'pose={self.map_frame}→{self.base_frame} '
             f'(logical child={self.pose_child_frame_id}) → {self.mqtt_pose_topic} (2 Hz), '
             f'broker={broker_host}:{broker_port}'
@@ -254,8 +283,10 @@ class MqttBridge(Node):
             'schema_version': '1.0',
             'robot_id': msg_robot_id,
             'state': msg.state,
-            'waypoint_idx': int(msg.waypoint_idx),
-            'waypoint_total': int(msg.waypoint_total),
+            'zone_id': msg.zone_id,
+            'expected_rack_id': msg.expected_rack_id,
+            'rack_idx': int(msg.rack_idx),
+            'rack_total': int(msg.rack_total),
             'battery': battery,
             'note': msg.note,
             'received_at': _received_at_utc(),
@@ -271,6 +302,74 @@ class MqttBridge(Node):
             self.get_logger().error(
                 f'MQTT mission state publish failed: rc={result.rc}'
             )
+
+    def security_event_callback(self, msg: SecurityEvent):
+        # /event/events is global. Each robot bridge owns only its robot's events.
+        # Preserve the source robot_id; never relabel another robot's event.
+        if msg.robot_id != self.robot_id:
+            return
+
+        payload = {
+            'schema_version': '1.0',
+            'robot_id': msg.robot_id,
+            'type': msg.type,
+            'zone_id': msg.zone_id,
+            'rack_id': msg.rack_id,
+            'position': {
+                'x': _finite_or_none(msg.position.x),
+                'y': _finite_or_none(msg.position.y),
+                'z': _finite_or_none(msg.position.z),
+            },
+            'basis': msg.basis,
+            'open_ratio': _finite_or_none(msg.open_ratio),
+            'frames': int(msg.frames),
+            'marker_checked': bool(msg.marker_checked),
+            'stamp': {
+                'sec': msg.header.stamp.sec,
+                'nanosec': msg.header.stamp.nanosec,
+            },
+            'received_at': _received_at_utc(),
+        }
+        # Persist before sending. Retrying preserves the original timestamps.
+        self.event_outbox.enqueue(payload)
+        self.publish_pending_event()
+
+    def _on_mqtt_publish(self, client, userdata, mid, reason_code, properties):
+        # MQTT network thread: hand off PUBACKs; do not touch SQLite here.
+        if not getattr(reason_code, 'is_failure', False):
+            self.event_acks.put(mid)
+
+    def publish_pending_event(self):
+        while True:
+            try:
+                mid = self.event_acks.get_nowait()
+            except Empty:
+                break
+            if self.event_inflight is not None:
+                row_id, event_mid = self.event_inflight
+                if mid == event_mid:
+                    self.event_outbox.acknowledge(row_id)
+                    self.event_inflight = None
+
+        if self.event_inflight is not None:
+            # Paho retries its in-flight QoS 1 message after reconnect.
+            return
+
+        if not self.mqtt_client.is_connected():
+            return
+        row = self.event_outbox.peek()
+        if row is None:
+            return
+        row_id, encoded = row
+        info = self.mqtt_client.publish(
+            self.mqtt_security_event_topic, encoded, qos=1, retain=False,
+        )
+        # NO_CONN for QoS 1 is still queued by Paho. Keep the same message ID
+        # instead of enqueuing duplicates on every timer tick.
+        if info.rc in (mqtt.MQTT_ERR_SUCCESS, mqtt.MQTT_ERR_NO_CONN):
+            self.event_inflight = (row_id, info.mid)
+        else:
+            self.get_logger().error(f'MQTT event publish failed: rc={info.rc}')
 
     def publish_pose(self):
         try:
@@ -330,6 +429,7 @@ class MqttBridge(Node):
     def destroy_node(self):
         self.mqtt_client.loop_stop()
         self.mqtt_client.disconnect()
+        self.event_outbox.close()
         return super().destroy_node()
 
 
