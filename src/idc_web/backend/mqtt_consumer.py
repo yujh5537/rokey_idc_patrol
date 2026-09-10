@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import math
+from time import monotonic
 
 import paho.mqtt.client as mqtt
 from sqlalchemy import select
@@ -24,6 +25,17 @@ MQTT_SUBSCRIPTIONS = (
     ("idc/+/pose", 0),
     ("idc/events/security", 1),
 )
+
+# Pose is published at 2 Hz. INT-00 freezes a 3-second freshness window:
+# if no actual pose MQTT sample reaches this backend for 3 seconds, the Web UI
+# must stop treating the DB's last stored coordinates as a live robot position.
+POSE_FRESHNESS_SECONDS = 3.0
+_pose_last_received_monotonic: dict[str, float] = {}
+
+
+def pose_is_fresh(robot_id: str) -> bool:
+    received = _pose_last_received_monotonic.get(robot_id)
+    return received is not None and monotonic() - received <= POSE_FRESHNESS_SECONDS
 
 
 def _parse_utc(value: object) -> datetime:
@@ -93,7 +105,7 @@ def _event_source_time(payload: dict, received_at: datetime) -> datetime:
         raise ValueError("event stamp is outside datetime range") from exc
 
 
-def _validate_security_event(payload: dict) -> tuple[datetime, dict]:
+def _validate_security_event(payload: dict) -> dict:
     if payload.get("type") != "E5":
         raise ValueError("current REP-03 SecurityEvent contract supports E5 only")
 
@@ -268,6 +280,12 @@ class MqttTelemetryConsumer:
                 robot.last_seen = received_at
 
             db.commit()
+
+        # Freshness is deliberately process-local and is set only after an
+        # actual pose MQTT sample has been validated and committed. A backend
+        # restart therefore cannot resurrect an old DB coordinate as "live".
+        if telemetry_type == "pose":
+            _pose_last_received_monotonic[robot_id] = monotonic()
 
     def _store_security_event(self, payload: dict, received_at: datetime) -> None:
         event_data = _validate_security_event(payload)
