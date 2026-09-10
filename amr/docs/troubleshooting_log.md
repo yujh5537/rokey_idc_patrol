@@ -188,3 +188,14 @@ amr/
 - **#4 (스캔 유실)** → 여전히 유효. 새 PC / 로봇 교체 시 `chronyc tracking` 으로
   로봇↔관제 PC 시계 오차부터 확인. 한 PC 에서 SLAM 2개를 돌려도 (#5) 같은 증상이 난다.
 - **#6 (map_saver)** → `save_merged_map.py` 는 `-t /map` 로 토픽 직접 지정.
+- **좌표 불일치 (로봇이 자기 지도에서 회전/이동해 뜸)** → TF static(`world->robotN/map`)
+  과 `map_merge` 의 `init_pose_*` 가 달라서 생긴다. `control_pc_full.launch.py` 가
+  `r5_*/r11_*` 인자 하나로 둘 다 세팅하도록 통합 (map_merge yaml 은 RewrittenYaml 로 덮어씀).
+  좌표계는 기본에서 x·y 를 180° 돌린 것 → `r5_yaw`/`r11_yaw` 기본값 π.
+
+## 현재 확정된 좌표 기준 (재확인)
+
+- world 원점 = 로봇5 도크, 로봇11 도크 = world (0, 4.58, 0)
+- 좌표계 = 기본(정면 +x, 왼쪽 +y)에서 x·y 를 **180° 회전** → world 정렬 yaw = π
+- 이 값은 `control_pc_full.launch.py` 의 `r5_*`, `r11_*` 인자로만 조정. 여러 곳에서
+  따로 고치면 다시 어긋난다.
