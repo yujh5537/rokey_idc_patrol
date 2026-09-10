@@ -31,6 +31,7 @@ secrets*/
 
 # TypeScript build cache
 *.tsbuildinfo
+models/
 
 # ArUco 출력 시트 (tools/make_aruco_a4.py 산출물)
 aruco_*_a4.png
