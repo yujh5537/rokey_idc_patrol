@@ -75,7 +75,7 @@ class PatrolPlanner(Node):
             self.settings.get('inspect_hold_sec', 3.0)
         )
 
-        self.verify_config = self.settings['verify']
+        self.marker_check_config = self.settings['marker_check']
 
         # ============================================================
         # Robot assignment
@@ -208,13 +208,13 @@ class PatrolPlanner(Node):
         }
 
     # ================================================================
-    # Verify pose
+    # Marker check pose
     #
     # 문 열림 / marker missing 등의 재확인용.
     # 현재 offset/yaw는 임시값.
     # ================================================================
 
-    def get_verify_pose(self, rack_id):
+    def get_marker_check_pose(self, rack_id):
 
         normal = self.get_normal_pose(rack_id)
 
@@ -222,23 +222,23 @@ class PatrolPlanner(Node):
         # NAV-08 실측값 확정 후 별도 pose를 정의한다.
         if normal['oblique']:
             raise ValueError(
-                f'{rack_id}: oblique rack verify pose is not approved yet'
+                f'{rack_id}: oblique rack marker check pose is not approved yet'
             )
 
         offset = float(
-            self.verify_config['offset_m']
+            self.marker_check_config['offset_m']
         )
 
         if normal['yaw'] >= 0.0:
 
             sign = int(
-                self.verify_config[
+                self.marker_check_config[
                     'positive_yaw_x_sign'
                 ]
             )
 
-            verify_yaw = float(
-                self.verify_config[
+            marker_check_yaw = float(
+                self.marker_check_config[
                     'positive_yaw'
                 ]
             )
@@ -246,13 +246,13 @@ class PatrolPlanner(Node):
         else:
 
             sign = int(
-                self.verify_config[
+                self.marker_check_config[
                     'negative_yaw_x_sign'
                 ]
             )
 
-            verify_yaw = float(
-                self.verify_config[
+            marker_check_yaw = float(
+                self.marker_check_config[
                     'negative_yaw'
                 ]
             )
@@ -260,7 +260,7 @@ class PatrolPlanner(Node):
         return {
             'x': normal['x'] + sign * offset,
             'y': normal['y'],
-            'yaw': verify_yaw,
+            'yaw': marker_check_yaw,
             'zone_id': normal['zone_id'],
         }
 

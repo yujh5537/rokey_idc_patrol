@@ -7,7 +7,7 @@
 
 inspect_hold_sec: 3.0
 
-verify:
+marker_check:
   # TEMP — NAV-08 실측값 수신 후 교체
   offset_m: 0.20
 
