@@ -1,0 +1,24 @@
+# 인식 노드 파라미터 — PC1·PC2 공용. 로봇별 차이는 launch 인자(namespace)로만.
+/**:
+  yolo_node:
+    ros__parameters:
+      model_path: ""            # launch 인자 model_path 로 덮어씀 (가중치는 레포 밖: ~/idc_ws/models/)
+      conf: 0.5                 # SDD 5.4
+      imgsz: 640                # GPU 없으면 480 (SRD SR-S13)
+      device: "0"               # PC1·PC2 모두 NVIDIA GPU 확인(9/10). GPU 없으면 "cpu"
+      max_fps: 10.0
+      publish_annotated: true
+      annotated_hz: 5.0
+  aruco_node:
+    ros__parameters:
+      dictionary: "DICT_5X5_250"   # SDD 3.1
+      marker_len: 0.02
+      min_id: 1
+      max_id: 56
+  perception_node:
+    ros__parameters:
+      racks_yaml: ""            # 비우면 idc_bringup/config/racks.yaml
+      image_width: 704          # camera_info 수신 전 폴백. 실측 OAK-D width=704 (9/10)
+      sync_tol_sec: 0.15
+      yolo_timeout_sec: 1.0
+      publish_without_door: true
