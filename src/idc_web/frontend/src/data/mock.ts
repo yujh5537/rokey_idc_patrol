@@ -1,6 +1,20 @@
 import { rackLayout } from './rackLayout';
 
-export type RobotState = 'PATROL' | 'IDLE' | 'RETURNING';
+export type RobotState =
+  | 'INIT'
+  | 'UNDOCK'
+  | 'NAVIGATE'
+  | 'FACE'
+  | 'INSPECT'
+  | 'MARKER_CHECK'
+  | 'RESUME'
+  | 'RETURN'
+  | 'DOCK'
+  | 'DONE'
+  | 'ERROR'
+  | 'IDLE'
+  | 'PATROL'
+  | 'RETURNING';
 export type RackState = 'NORMAL' | 'DOOR_OPEN' | 'LED_RED';
 
 export interface Robot {
@@ -28,9 +42,30 @@ export interface Rack {
   updatedAt?: string;
 }
 
+// MAP-02 racks.yaml docks are the only fallback positions shown when live pose
+// telemetry is unavailable. They are reference/AMCL initial poses, not a claim
+// that the robot is currently at the dock.
 export const robots: Robot[] = [
-  { id: 'robot5', label: 'AMR 05', state: 'PATROL', battery: 82, x: 1.3, y: 1.7, yaw: 0.55, zone: 'Z2' },
-  { id: 'robot11', label: 'AMR 11', state: 'IDLE', battery: 67, x: 5.7, y: -1.2, yaw: 2.25, zone: 'Z4' },
+  {
+    id: 'robot5',
+    label: 'AMR 05',
+    state: 'IDLE',
+    battery: 0,
+    x: 0.27,
+    y: 0.33,
+    yaw: 3.1416,
+    zone: '',
+  },
+  {
+    id: 'robot11',
+    label: 'AMR 11',
+    state: 'IDLE',
+    battery: 0,
+    x: 0.27,
+    y: 4.92,
+    yaw: 3.1416,
+    zone: '',
+  },
 ];
 
 // Rack mock state is kept only for isolated visual development.
