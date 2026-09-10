@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import MapView, { type SecurityEvent } from './components/MapView';
 import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
-import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from './data/testbed';
+import { TESTBED_RENDER_SPEC } from './data/testbed';
 import type { MapMeta } from './lib/coordinates';
 import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
 const DEFAULT_META: MapMeta = {
   resolution: 0.05,
-  origin: [-3.402, -0.837, 0],
+  origin: [-0.5, -0.5, 0],
   negate: 0,
   occupiedThresh: 0.65,
-  freeThresh: 0.196,
+  freeThresh: 0.25,
 };
 
 const INITIAL_EVENTS: SecurityEvent[] = [
@@ -20,13 +20,6 @@ const INITIAL_EVENTS: SecurityEvent[] = [
 
 function sanitizeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
-}
-
-function ratioToWorld(ratioX: number, ratioY: number, meta: MapMeta, width: number, height: number) {
-  return {
-    x: meta.origin[0] + width * ratioX * meta.resolution,
-    y: meta.origin[1] + (height - height * ratioY) * meta.resolution,
-  };
 }
 
 export default function App() {
@@ -210,36 +203,18 @@ export default function App() {
     };
   }, []);
 
-  const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
-  const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
-
-  const racks = useMemo<Rack[]>(() => {
-    // 현재 위치는 스타일 프리뷰용 mock이다.
-    // rack_coords_generalized.csv가 들어오면 pixel_x_frac / pixel_y_frac 기반으로 교체한다.
-    const rowRatios = [0.24, 0.38, 0.62, 0.76];
-
-    return rackSeed.map((rack, index) => {
-      const row = Math.floor(index / 7);
-      const col = index % 7;
-      const world = ratioToWorld(
-        0.25 + col * 0.083,
-        rowRatios[row] ?? 0.5,
-        meta,
-        sourceWidth,
-        sourceHeight,
-      );
+  const racks = useMemo<Rack[]>(() => (
+    rackSeed.map((rack) => {
       const event = events.find((item) => item.rackId === rack.id);
 
       return {
         ...rack,
-        x: world.x,
-        y: world.y,
         state: event?.type === 'E5' ? 'DOOR_OPEN' : event?.type === 'E7' ? 'LED_RED' : 'NORMAL',
         severity: event?.severity,
         updatedAt: event?.time,
       };
-    });
-  }, [events, meta, sourceHeight, sourceWidth]);
+    })
+  ), [events]);
 
   const handleMapImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -398,7 +373,7 @@ export default function App() {
             <div className="panel-title">MAP INTEGRITY</div>
             <div className="integrity-row"><span>Image</span><strong>{imageStatus}</strong></div>
             <div className="integrity-row"><span>YAML</span><strong>{yamlStatus}</strong></div>
-            <div className="integrity-row"><span>Canvas</span><strong className="ok">5700:3500 LOCKED</strong></div>
+            <div className="integrity-row"><span>Canvas</span><strong className="ok">5600:3500 LOCKED</strong></div>
             <div className="integrity-row"><span>AMR</span><strong>Ø {TESTBED_RENDER_SPEC.amrDiameterMm} mm</strong></div>
             <div className="integrity-row"><span>Rack</span><strong>{TESTBED_RENDER_SPEC.rackWidthMm} × {TESTBED_RENDER_SPEC.rackHeightMm} mm</strong></div>
             <div className="integrity-row"><span>Rack layout</span><strong className="ok">56 RACKS LOCKED</strong></div>
