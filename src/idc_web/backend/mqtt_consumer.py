@@ -6,43 +6,38 @@ import logging
 import math
 
 import paho.mqtt.client as mqtt
+from sqlalchemy import select
 
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.models import Robot
+from backend.models import Event, Rack, Robot, Zone
 
 
 logger = logging.getLogger(__name__)
 
 
-# PC4 FastAPI 서버가 Mosquitto에서 구독할 MQTT topic 목록이다.
-# + 는 MQTT wildcard라서 robot5, robot11 등 어떤 robot_id도 받을 수 있다.
-# 예: idc/robot5/battery, idc/robot11/battery 모두 idc/+/battery에 매칭된다.
-# 두 번째 값은 QoS이다. battery/state는 QoS 1, pose는 실시간성을 위해 QoS 0을 사용한다.
-TELEMETRY_SUBSCRIPTIONS = (
+# PC4 subscribes to the frozen telemetry topics plus the merged REP-03
+# SecurityEvent path used by INT-00.
+MQTT_SUBSCRIPTIONS = (
     ("idc/+/battery", 1),
     ("idc/+/mission/state", 1),
     ("idc/+/pose", 0),
+    ("idc/events/security", 1),
 )
 
 
 def _parse_utc(value: object) -> datetime:
-    # MQTT JSON의 received_at 문자열을 Python datetime으로 바꾼다.
-    # 시간 정보가 없거나 timezone이 없으면 잘못된 메시지로 판단한다.
     if not isinstance(value, str) or not value:
         raise ValueError("received_at is required")
 
     normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
     parsed = datetime.fromisoformat(normalized)
-
     if parsed.tzinfo is None:
         raise ValueError("received_at must include timezone")
-
     return parsed.astimezone(timezone.utc)
 
 
 def _finite_float(value: object, *, allow_none: bool = False) -> float | None:
-    # DB에 NaN/Infinity 같은 비정상 숫자가 들어가지 않도록 검사한다.
     if value is None and allow_none:
         return None
 
@@ -53,11 +48,6 @@ def _finite_float(value: object, *, allow_none: bool = False) -> float | None:
 
 
 def _robot_from_topic(topic: str) -> tuple[str, str]:
-    # MQTT topic 문자열을 분해해서
-    # 1) 어떤 로봇인지(robot_id)
-    # 2) 어떤 종류의 telemetry인지
-    # 를 알아낸다.
-    # 예: idc/robot5/pose -> ("robot5", "pose")
     parts = topic.split("/")
 
     if len(parts) == 3 and parts[0] == "idc" and parts[2] == "battery":
@@ -77,52 +67,111 @@ def _robot_from_topic(topic: str) -> tuple[str, str]:
     raise ValueError(f"unsupported telemetry topic: {topic}")
 
 
-class MqttTelemetryConsumer:
-    """PC4 MQTT -> PostgreSQL telemetry consumer.
+def _event_source_time(payload: dict, received_at: datetime) -> datetime:
+    stamp = payload.get("stamp")
+    if not isinstance(stamp, dict):
+        raise ValueError("event stamp must be an object")
 
-    This module intentionally has no ROS 2 dependency. It consumes only the
-    FROZEN MQTT Interface v1 payloads produced by PC3 idc_bridge.
-    """
+    sec = stamp.get("sec")
+    nanosec = stamp.get("nanosec")
+    if not isinstance(sec, int) or sec < 0:
+        raise ValueError("event stamp.sec must be a non-negative integer")
+    if not isinstance(nanosec, int) or not 0 <= nanosec < 1_000_000_000:
+        raise ValueError("event stamp.nanosec must be within 0..999999999")
+
+    # Some synthetic ROS messages use the zero stamp. The bridge preserves
+    # received_at across replay, so it is the deterministic fallback key.
+    if sec == 0 and nanosec == 0:
+        return received_at
+
+    try:
+        return datetime.fromtimestamp(
+            sec + (nanosec / 1_000_000_000),
+            tz=timezone.utc,
+        )
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError("event stamp is outside datetime range") from exc
+
+
+def _validate_security_event(payload: dict) -> tuple[datetime, dict]:
+    if payload.get("type") != "E5":
+        raise ValueError("current REP-03 SecurityEvent contract supports E5 only")
+
+    robot_id = payload.get("robot_id")
+    zone_id = payload.get("zone_id")
+    rack_id = payload.get("rack_id")
+    basis = payload.get("basis")
+    frames = payload.get("frames")
+    marker_checked = payload.get("marker_checked")
+    position = payload.get("position")
+
+    if not isinstance(robot_id, str) or not robot_id:
+        raise ValueError("event robot_id is required")
+    if not isinstance(zone_id, str) or not zone_id:
+        raise ValueError("event zone_id is required")
+    if not isinstance(rack_id, str) or not rack_id:
+        raise ValueError("event rack_id is required")
+    if basis not in {"yolo", "marker_missing"}:
+        raise ValueError("event basis must be yolo or marker_missing")
+    if not isinstance(frames, int) or frames < 0:
+        raise ValueError("event frames must be a non-negative integer")
+    if not isinstance(marker_checked, bool):
+        raise ValueError("event marker_checked must be boolean")
+    if not isinstance(position, dict):
+        raise ValueError("event position must be an object")
+
+    open_ratio = _finite_float(payload.get("open_ratio"), allow_none=True)
+    if open_ratio is not None and not 0.0 <= open_ratio <= 1.0:
+        raise ValueError("event open_ratio must be within 0..1")
+
+    normalized = {
+        "robot_id": robot_id,
+        "zone_id": zone_id,
+        "rack_id": rack_id,
+        "basis": basis,
+        "frames": frames,
+        "marker_checked": marker_checked,
+        "open_ratio": open_ratio,
+        "x": _finite_float(position.get("x")),
+        "y": _finite_float(position.get("y")),
+        "z": _finite_float(position.get("z"), allow_none=True),
+    }
+    return normalized
+
+
+class MqttTelemetryConsumer:
+    """PC4 MQTT -> PostgreSQL consumer with SecurityEvent ingestion."""
 
     def __init__(self) -> None:
-        # 같은 telemetry가 재전송되거나 과거 데이터가 늦게 도착했을 때
-        # DB를 이전 값으로 덮어쓰지 않기 위해 마지막 수신 시각을 기억한다.
         self._last_received_at: dict[tuple[str, str], datetime] = {}
 
-        # paho-mqtt Client를 만든다.
-        # 이 Client가 PC4의 Mosquitto broker에 연결되어 telemetry를 구독한다.
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id="idc-pc4-telemetry-consumer",
         )
-        # 연결 성공 시 실행할 함수와 메시지 수신 시 실행할 함수를 등록한다.
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        # broker 연결이 끊기면 1~30초 간격으로 재연결을 시도한다.
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     def start(self) -> None:
-        # FastAPI 시작 시 MQTT broker에 비동기로 연결한다.
         self.client.connect_async(
             settings.mqtt_host,
             settings.mqtt_port,
             keepalive=60,
         )
-        # MQTT 네트워크 처리를 별도 thread에서 계속 돌린다.
         self.client.loop_start()
         logger.info(
-            "MQTT telemetry consumer started: %s:%s",
+            "MQTT consumer started: %s:%s",
             settings.mqtt_host,
             settings.mqtt_port,
         )
 
     def stop(self) -> None:
-        # FastAPI 종료 시 MQTT background loop와 broker 연결도 같이 정리한다.
         self.client.loop_stop()
         try:
             self.client.disconnect()
         except Exception:
-            logger.exception("MQTT telemetry consumer disconnect failed")
+            logger.exception("MQTT consumer disconnect failed")
 
     def _on_connect(
         self,
@@ -132,13 +181,11 @@ class MqttTelemetryConsumer:
         reason_code,
         properties,
     ) -> None:
-        # broker 연결에 실패하면 subscribe를 시도하지 않는다.
         if getattr(reason_code, "is_failure", False):
             logger.error("MQTT connection failed: %s", reason_code)
             return
 
-        # 연결이 성공하면 위에서 정의한 3종 telemetry topic을 구독한다.
-        for topic, qos in TELEMETRY_SUBSCRIPTIONS:
+        for topic, qos in MQTT_SUBSCRIPTIONS:
             result, _ = client.subscribe(topic, qos=qos)
             if result != mqtt.MQTT_ERR_SUCCESS:
                 logger.error("MQTT subscribe failed: topic=%s rc=%s", topic, result)
@@ -146,67 +193,55 @@ class MqttTelemetryConsumer:
                 logger.info("MQTT subscribed: %s qos=%s", topic, qos)
 
     def _on_message(self, client, userdata, message: mqtt.MQTTMessage) -> None:
-        # Mosquitto에서 메시지가 하나 들어올 때마다 실행되는 callback이다.
         try:
-            # topic에서 robot_id와 telemetry 종류를 알아낸다.
-            robot_id, telemetry_type = _robot_from_topic(message.topic)
-            # MQTT payload는 bytes이므로 UTF-8 문자열 -> JSON dict로 변환한다.
             payload = json.loads(message.payload.decode("utf-8"))
-
-            # 계약에 맞지 않는 메시지는 DB에 넣지 않고 거부한다.
             if not isinstance(payload, dict):
                 raise ValueError("payload must be a JSON object")
             if payload.get("schema_version") != "1.0":
                 raise ValueError("unsupported schema_version")
+
+            if message.topic == "idc/events/security":
+                received_at = _parse_utc(payload.get("received_at"))
+                self._store_security_event(payload, received_at)
+                return
+
+            robot_id, telemetry_type = _robot_from_topic(message.topic)
             if payload.get("robot_id") != robot_id:
                 raise ValueError("topic robot_id does not match payload robot_id")
 
-            # 메시지가 PC3 bridge에 들어온 실제 시각을 읽는다.
             received_at = _parse_utc(payload.get("received_at"))
             key = (robot_id, telemetry_type)
             previous = self._last_received_at.get(key)
-
-            # QoS 1 redelivery / battery 1 Hz replay can repeat the same source
-            # sample. Avoid unnecessary DB writes and stale out-of-order updates.
             if previous is not None and received_at <= previous:
                 return
 
-            # 검증이 끝난 데이터만 PostgreSQL에 저장한다.
-            self._store(robot_id, telemetry_type, payload, received_at)
+            self._store_robot(robot_id, telemetry_type, payload, received_at)
             self._last_received_at[key] = received_at
 
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             logger.warning(
-                "Rejected MQTT telemetry: topic=%s payload=%r",
+                "Rejected MQTT message: topic=%s payload=%r",
                 message.topic,
                 message.payload[:512],
                 exc_info=True,
             )
         except Exception:
-            logger.exception("MQTT telemetry processing failed: %s", message.topic)
+            logger.exception("MQTT processing failed: %s", message.topic)
 
-    def _store(
+    def _store_robot(
         self,
         robot_id: str,
         telemetry_type: str,
         payload: dict,
         received_at: datetime,
     ) -> None:
-        # 한 번의 MQTT 메시지를 DB에 반영하는 함수다.
         with SessionLocal() as db:
-            # robots 테이블에서 해당 robot_id를 찾는다.
             robot = db.get(Robot, robot_id)
-            # 처음 보는 로봇이면 자동으로 새 row를 만든다.
-            # 그래서 robot5/robot11을 코드에 각각 따로 하드코딩할 필요가 없다.
             if robot is None:
-                robot = Robot(
-                    id=robot_id,
-                    name=robot_id,
-                )
+                robot = Robot(id=robot_id, name=robot_id)
                 db.add(robot)
 
             if telemetry_type == "battery":
-                # BatteryState의 percentage는 0.0~1.0 값으로 저장한다.
                 percentage = _finite_float(
                     payload.get("percentage"),
                     allow_none=True,
@@ -216,14 +251,12 @@ class MqttTelemetryConsumer:
                 robot.battery = percentage
 
             elif telemetry_type == "mission_state":
-                # 로봇의 현재 mission state(PATROL, IDLE 등)를 저장한다.
                 state = payload.get("state")
                 if not isinstance(state, str) or not state:
                     raise ValueError("mission state is required")
                 robot.state = state
 
             elif telemetry_type == "pose":
-                # 지도 위 위치를 표시하기 위해 x, y, yaw를 저장한다.
                 robot.x = _finite_float(payload.get("x"))
                 robot.y = _finite_float(payload.get("y"))
                 robot.yaw = _finite_float(payload.get("yaw"))
@@ -231,10 +264,76 @@ class MqttTelemetryConsumer:
             else:
                 raise ValueError(f"unsupported telemetry type: {telemetry_type}")
 
-            # last_seen is the bridge source receive time, not the PC4 consume time.
-            # Never move it backwards when different telemetry topics interleave.
             if robot.last_seen is None or received_at > robot.last_seen:
                 robot.last_seen = received_at
 
-            # 여기까지 문제가 없으면 실제 DB에 변경사항을 저장한다.
+            db.commit()
+
+    def _store_security_event(self, payload: dict, received_at: datetime) -> None:
+        event_data = _validate_security_event(payload)
+        event_ts = _event_source_time(payload, received_at)
+
+        with SessionLocal() as db:
+            robot = db.get(Robot, event_data["robot_id"])
+            if robot is None:
+                robot = Robot(
+                    id=event_data["robot_id"],
+                    name=event_data["robot_id"],
+                )
+                db.add(robot)
+                db.flush()
+
+            if db.get(Zone, event_data["zone_id"]) is None:
+                raise ValueError(
+                    f"unknown zone_id {event_data['zone_id']}; MAP-02 seed is required"
+                )
+            if db.get(Rack, event_data["rack_id"]) is None:
+                raise ValueError(
+                    f"unknown rack_id {event_data['rack_id']}; MAP-02 seed is required"
+                )
+
+            # The bridge is at-least-once. Use the preserved ROS source stamp
+            # (or preserved received_at for zero-stamp tests) as the DB dedup key.
+            duplicate = db.scalar(
+                select(Event.id).where(
+                    Event.robot_id == event_data["robot_id"],
+                    Event.type == "E5",
+                    Event.rack_id == event_data["rack_id"],
+                    Event.first_ts == event_ts,
+                ).limit(1)
+            )
+            if duplicate is not None:
+                return
+
+            detail = {
+                "basis": event_data["basis"],
+                "open_ratio": event_data["open_ratio"],
+                "frames": event_data["frames"],
+                "marker_checked": event_data["marker_checked"],
+                "stamp": payload.get("stamp"),
+                "received_at": payload.get("received_at"),
+            }
+
+            # REP-03 SecurityEvent has no severity/status/evidence fields.
+            # Keep those DB columns NULL rather than inventing application data.
+            db.add(
+                Event(
+                    type="E5",
+                    severity=None,
+                    zone_id=event_data["zone_id"],
+                    rack_id=event_data["rack_id"],
+                    robot_id=event_data["robot_id"],
+                    x=event_data["x"],
+                    y=event_data["y"],
+                    first_ts=event_ts,
+                    last_ts=received_at,
+                    status=None,
+                    detail_json=json.dumps(
+                        detail,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                    ),
+                )
+            )
             db.commit()
