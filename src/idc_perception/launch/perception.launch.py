@@ -36,8 +36,17 @@ def generate_launch_description():
                               description="compressed→raw 변환 노드 포함 여부 (INF-04 republish가 이미 돌면 false)"),
 
         # compressed → raw (SDD 5.4 republish). 상대 토픽 → /robotN/oakd/rgb/image_raw
+        # ※ republish 는 구독 QoS 가 기본 RELIABLE 인데 카메라는 SensorData(BEST_EFFORT) 로 발행한다.
+        #    맞추지 않으면 "incompatible QoS. No messages will be sent" 경고 한 줄만 남기고
+        #    raw 가 한 프레임도 안 나온다(= objects 0). QoS 오버라이드 키에 FQN 토픽이 들어가므로
+        #    네임스페이스를 치환으로 끼워 넣는다.
         Node(package="image_transport", executable="republish", name="republish", namespace=ns,
-             parameters=[{"in_transport": "compressed", "out_transport": "raw"}],
+             parameters=[{
+                 "in_transport": "compressed",
+                 "out_transport": "raw",
+                 ("qos_overrides./", ns, "/oakd/rgb/image_raw/compressed.subscription.reliability"):
+                     "best_effort",
+             }],
              remappings=[("in/compressed", "oakd/rgb/image_raw/compressed"),
                          ("out", "oakd/rgb/image_raw")],
              condition=IfCondition(use_republish), output="screen"),
