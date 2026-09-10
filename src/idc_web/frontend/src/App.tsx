@@ -3,7 +3,7 @@ import MapView, { type SecurityEvent } from './components/MapView';
 import { racks as rackSeed, robots as robotSeed, type Rack, type Robot } from './data/mock';
 import { TESTBED_RENDER_SPEC } from './data/testbed';
 import type { MapMeta } from './lib/coordinates';
-import { loadSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
+import { loadCurrentSlamMap, parseMapYaml, parsePgm, type PgmImage } from './lib/pgm';
 
 const DEFAULT_META: MapMeta = {
   resolution: 0.05,
@@ -99,16 +99,17 @@ export default function App() {
   const [robots, setRobots] = useState<Robot[]>([]);
 
   useEffect(() => {
-    loadSlamMap('/maps/map')
-      .then(({ image, meta: loadedMeta }) => {
+    loadCurrentSlamMap()
+      .then(({ image, meta: loadedMeta, mapName: loadedMapName }) => {
         setMap(image);
         setMeta(loadedMeta);
-        setMapName('map.pgm');
+        setMapName(loadedMapName);
         setImageStatus('VALID PGM');
         setYamlStatus('VALID');
       })
       .catch(() => {
-        // Runtime map can also be loaded manually; keep demo canvas otherwise.
+        // PC3 -> PC4 runtime map has not been synchronized yet.
+        // Keep the synthetic demo canvas without fabricating live-map metadata.
       });
   }, []);
 
