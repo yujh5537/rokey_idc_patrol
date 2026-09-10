@@ -148,7 +148,7 @@ ros2 run nav2_map_server map_saver_cli \
 ## 현재 확정된 좌표 기준
 
 - world 원점(0,0,0) = 로봇5 도크
-- 로봇11 도크 = world 기준 (0, 4.58, y축은 로봇 기준 오른쪽 방향)
+- 로봇11 도크 = world 기준 (0, 4.53, y축은 로봇 기준 오른쪽 방향) — 2026-09-10 재실측 (이전 4.58)
 - 좌표축 정의: x축 = 로봇 후면 방향, y축 = 로봇 오른쪽 방향
   (초기에는 x=정면, y=왼쪽이었다가 중간에 180도 회전하는 것으로
   변경됨 — 혹시 이전 기록에 옛 정의가 남아있다면 이게 최신 기준)
@@ -193,9 +193,39 @@ amr/
   `r5_*/r11_*` 인자 하나로 둘 다 세팅하도록 통합 (map_merge yaml 은 RewrittenYaml 로 덮어씀).
   좌표계는 기본에서 x·y 를 180° 돌린 것 → `r5_yaw`/`r11_yaw` 기본값 π.
 
+## 2026-09-10 (2) 병합 지도(/map) 가 로봇 TF 와 계속 어긋남 — map_merge 한계
+
+**증상**: 로봇 TF(로봇5·로봇11 위치)는 world 기준으로 정확한데, `map_merge` 가
+발행하는 `/map` 만 어긋난다. init_pose 와 static TF 값을 똑같이 맞춰도 그대로.
+시간이 지날수록(지도가 자랄수록) 더 벌어진다.
+
+**원인** (m-explore-ros2 소스 확인, `turtlebot4_ws/src/m-explore-ros2`):
+`multirobot_map_merge` 는 `known_init_poses` 모드에서 **TF 를 아예 안 본다**
+(`TransformListener` 없음). 그리고 병합 결과를 world 에 georeference 하지 않는다:
+
+1. `composeGrids()` — `/map` 의 `info.origin` 을 **항상**
+   `(-width/2·res, -height/2·res, yaw=0)` 으로 강제. init_pose 무관, 그리드 중심이
+   world 원점에 고정. 지도가 자라면 `width/height` 증가 → origin 이동 (= 벌어짐).
+2. `init_pose` 이동값을 `/resolution` 없이 **픽셀** affine 에 넣음. `r11_y=4.53` →
+   4.53 px(≈0.23 m). 두 지도가 겹쳐 쌓임.
+3. 회전 중심이 그리드 프레임 원점이 아니라 **픽셀 (0,0) 모서리**. `yaw=π` 에서
+   지도 크기만큼 오프셋 추가.
+
+→ "init_pose == static TF 로 맞추면 정렬된다" 는 전제 자체가 이 빌드에선 틀렸다.
+2·3 은 재발행/TF 로 못 고침 (이미 픽셀에 잘못 구워짐).
+
+**해결**: 전용 병합 노드 `amr/scripts/merge_maps_world.py` 로 교체 (직접 래스터화).
+각 입력 그리드를 `world<-robotN/map` 변환 + `info.origin` 으로 미터 단위 투영,
+world 축 정렬(회전 0) 출력, `info.origin` 에 실제 world 좌표. `control_pc_full.launch.py`
+가 `merge_script:=` 인자로 실행하고 pose 는 `r5_*`/`r11_*` 에서 넘긴다 (좌표 단일 소스).
+`merge_script` 를 비우면 fallback 으로 `multirobot_map_merge` (정렬 보장 안 됨).
+
+진단 스크립트: `amr/scripts/check_map_alignment.py`.
+
 ## 현재 확정된 좌표 기준 (재확인)
 
-- world 원점 = 로봇5 도크, 로봇11 도크 = world (0, 4.58, 0)
+- world 원점 = 로봇5 도크, 로봇11 도크 = world (0, 4.53, 0)  # 2026-09-10 재실측 (이전 4.58)
 - 좌표계 = 기본(정면 +x, 왼쪽 +y)에서 x·y 를 **180° 회전** → world 정렬 yaw = π
-- 이 값은 `control_pc_full.launch.py` 의 `r5_*`, `r11_*` 인자로만 조정. 여러 곳에서
-  따로 고치면 다시 어긋난다.
+- 이 값은 `control_pc_full.launch.py` 의 `r5_*`, `r11_*` 인자로만 조정 (static TF 와
+  merge_maps_world `--pose` 를 동시에 세팅). `map_merge_params.yaml` 의 init_pose 는
+  fallback 전용. 여러 곳에서 따로 고치면 다시 어긋난다.
