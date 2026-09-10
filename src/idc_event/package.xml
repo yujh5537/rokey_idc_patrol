@@ -9,8 +9,8 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>sensor_msgs</depend>
   <depend>idc_msgs</depend>
+  <exec_depend>idc_bringup</exec_depend>   <!-- racks.yaml (share/config) 런타임 조회 -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>python3-pytest</test_depend>

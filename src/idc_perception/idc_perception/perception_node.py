@@ -5,7 +5,7 @@ SDD 5.4 규칙:
  ① 화면 중앙(cx)에 가장 가까운 마커 → rack_id = "R%02d" % aruco_id
  ② 화면 중앙에 가장 가까운 도어 박스 1개만 채택
  ③ expected_rack_id 마커가 없으면 rack_id=기대값, marker_detected=false
- ④ MARKER_CHECK 중 마커가 읽히면 그 ID로 확정, marker_detected=true
+ ④ MARKER_CHECK 중 중앙 마커가 expected 와 일치할 때만 확정, marker_detected=true (PM 축소 9/10)
  ⑤ 랙 1개당 Object 1개
 배치: PC1·PC2 (--ros-args -r __ns:=/robotN)
 """
@@ -105,9 +105,18 @@ class PerceptionNode(Node):
             rack_id = self.expected
             marker_detected = expected_aid in seen
         elif self.state == "MARKER_CHECK" and self.expected:
-            if center_aid is not None:                             # ④ 읽힌 ID로 확정
+            # ④ (축소, PM 확정 9/10) 중앙 마커가 expected 와 "일치할 때만" 확정.
+            # 불일치 시 이웃 랙 마커를 읽고 R08 로 오귀속되면 이벤트가 엉뚱한 랙에 붙고
+            # marker_detected=true 가 되어 basis="marker_missing" 경로가 아예 죽는다.
+            # 오항법은 mission 층 책임 — 여기서는 expected 를 유지하고 경고만 남긴다.
+            if center_aid is not None and center_aid == expected_aid:
                 rack_id, marker_detected = self.by_aruco[center_aid][0], True
             else:
+                if center_aid is not None:
+                    self.get_logger().warn(
+                        f"MARKER_CHECK 중앙 마커 {center_aid}(R{center_aid:02d}) != expected "
+                        f"{self.expected} — expected 유지, marker_detected=false",
+                        throttle_duration_sec=2.0)
                 rack_id, marker_detected = self.expected, False
         else:                                                      # 창 밖: 관측만
             if center_aid is None:

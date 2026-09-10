@@ -1,0 +1,3 @@
+# SDD 4.2.6 정본. 키를 바꾸지 말 것 (규칙 4)
+E5: {class: rack_door_open, min_open_frames: 10, open_ratio: 0.6, marker_missing_is_open: true}
+dedup: per_run            # 회차당 rack_id 1회
