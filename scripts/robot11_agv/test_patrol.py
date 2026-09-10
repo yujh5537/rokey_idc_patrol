@@ -1,3 +1,4 @@
+import math
 import unittest
 import yaml
 from patrol import (
@@ -5,7 +6,10 @@ from patrol import (
     EXPECTED_ROBOT11_ROUTE,
     build_route,
     run_patrol,
-    pose_matches,
+    ensure_undocked,
+    REQUIRED_NODES,
+    visit_rack,
+    angle_difference,
 )
 
 
@@ -115,25 +119,81 @@ class PatrolTests(unittest.TestCase):
             )
         )
 
-    def test_alignment_rejects_adjacent_rack_and_wrong_heading(self):
-        self.assertFalse(
-            pose_matches(
-                (2.345, 4.9, 1.5708),
-                (2.135, 4.9, 1.5708),
-            )
-        )
-        self.assertFalse(
-            pose_matches(
-                (2.135, 4.9, -1.5708),
-                (2.135, 4.9, 1.5708),
-            )
-        )
-        self.assertTrue(
-            pose_matches(
-                (2.135, 4.9, 1.5708),
-                (2.135, 4.9, 1.5708),
-            )
-        )
+    def test_undock_sequence_and_failures(self):
+        events = []
+        self.assertTrue(ensure_undocked(
+            True, lambda: events.append('undock') or True,
+            lambda: events.append('confirm') or True))
+        self.assertEqual(events, ['undock', 'confirm'])
+        self.assertFalse(ensure_undocked(None, lambda: self.fail(), lambda: self.fail()))
+        self.assertFalse(ensure_undocked(True, lambda: False, lambda: self.fail()))
+        self.assertFalse(ensure_undocked(True, lambda: True, lambda: False))
+        self.assertTrue(ensure_undocked(False, lambda: self.fail(), lambda: True))
+
+    def test_velocity_and_recovery_nodes_are_required(self):
+        self.assertTrue({'behavior_server', 'velocity_smoother', 'collision_monitor'}
+                        <= set(REQUIRED_NODES))
+
+    def test_rack_travel_then_face(self):
+        events = []
+        self.assertTrue(visit_rack(
+            ('R06', 2.345, 4.9, math.pi/2),
+            lambda: (2.135, 4.9, math.pi/2),
+            lambda name, yaw: events.append((name, yaw)) or True,
+            lambda goal: events.append(goal) or True))
+        self.assertEqual(events[0], ('R06:TURN_TO_TRAVEL', 0.0))
+        self.assertEqual(events[1], ('R06:MOVE', 2.345, 4.9, 0.0))
+        self.assertEqual(events[2], ('R06:FACE_RACK', math.pi/2))
+
+    def test_return_row_moves_left_then_faces_down(self):
+        events = []
+        self.assertTrue(visit_rack(
+            ('R10', 2.975, 4.9, -math.pi/2),
+            lambda: (3.185, 4.9, -math.pi/2),
+            lambda name, yaw: events.append((name, yaw)) or True,
+            lambda goal: events.append(goal) or True))
+        self.assertAlmostEqual(events[0][1], math.pi)
+        self.assertEqual(events[-1], ('R10:FACE_RACK', -math.pi/2))
+
+    def test_shared_or_nearby_pose_only_turns(self):
+        for actual_x in (3.229, 3.185):
+            events = []
+            self.assertTrue(visit_rack(
+                ('R08', 3.229, 4.9, -1.3072),
+                lambda: (actual_x, 4.9, 1.3072),
+                lambda name, yaw: events.append(name) or True,
+                lambda goal: self.fail('unnecessary tiny move')))
+            self.assertEqual(events, ['R08:FACE_RACK'])
+
+    def test_stage_failure_blocks_dwell_and_docking(self):
+        for failed in ('TURN_TO_TRAVEL', 'MOVE', 'FACE_RACK'):
+            events = []
+            def turn(name, yaw):
+                events.append(name)
+                return not name.endswith(failed)
+            def move(goal):
+                events.append(goal[0])
+                return failed != 'MOVE'
+            self.assertFalse(run_patrol(
+                lambda goal: visit_rack(goal, lambda: (1.4, 4.9, 0), turn, move),
+                lambda name: self.fail('dwell after failed stage'),
+                lambda: self.fail('dock after failed stage'),
+                [('R07', 2.135, 4.9, math.pi/2)]))
+            self.assertTrue(events[-1].endswith(failed))
+
+    def test_missing_pose_and_angle_wrap(self):
+        self.assertFalse(visit_rack(
+            ('R07', 2.135, 4.9, 1.5708), lambda: None,
+            lambda *args: self.fail(), lambda *args: self.fail()))
+        self.assertAlmostEqual(angle_difference(math.radians(-179), math.radians(179)), math.radians(2))
+
+    def test_profile_reduces_adjacent_rack_skip_without_disabling_collision(self):
+        with CONFIG.parents[3].joinpath('scripts/robot11_agv/nav2_patrol.yaml').open() as f:
+            profile = yaml.safe_load(f)
+        c = profile['controller_server']['ros__parameters']
+        self.assertLess(2*c['general_goal_checker']['xy_goal_tolerance'], .21)
+        self.assertEqual(c['FollowPath']['xy_goal_tolerance'], c['general_goal_checker']['xy_goal_tolerance'])
+        self.assertTrue(profile['collision_monitor']['ros__parameters']['scan']['enabled'])
 
 
 if __name__ == '__main__':
