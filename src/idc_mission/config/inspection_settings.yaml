@@ -1,0 +1,18 @@
+# Mission inspection settings
+#
+# 랙 좌표 / 구역 / 순찰 순서 정본:
+#   idc_bringup/config/racks.yaml
+#
+# 이 파일에는 Mission 동작 파라미터만 둔다.
+
+inspect_hold_sec: 3.0
+
+verify:
+  # TEMP — NAV-08 실측값 수신 후 교체
+  offset_m: 0.20
+
+  positive_yaw: 1.2755
+  positive_yaw_x_sign: -1
+
+  negative_yaw: -1.2755
+  negative_yaw_x_sign: 1
