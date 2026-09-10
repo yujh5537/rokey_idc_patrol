@@ -9,20 +9,47 @@ from pathlib import Path
 
 CONFIG = Path(__file__).resolve().parents[2] / 'src/idc_bringup/config/racks.yaml'
 
+# MAP-02 -> Final SLAM map rigid transform.
+# Keep racks.yaml as the MAP-02 source of truth and transform poses at runtime.
+# Final map: maps/Final.yaml (0.05 m/px, origin [-3.523, -5.735, 0]).
+MAP02_TO_FINAL_YAW = 3.21718836
+MAP02_TO_FINAL_TX = 0.11410702
+MAP02_TO_FINAL_TY = 0.26603952
+
+
+def final_pose(name, x, y, yaw):
+    """Transform a MAP-02 pose into the current Final SLAM-map frame."""
+    x = float(x)
+    y = float(y)
+    yaw = float(yaw)
+    c = math.cos(MAP02_TO_FINAL_YAW)
+    s = math.sin(MAP02_TO_FINAL_YAW)
+    final_x = c * x - s * y + MAP02_TO_FINAL_TX
+    final_y = s * x + c * y + MAP02_TO_FINAL_TY
+    final_yaw = math.atan2(
+        math.sin(yaw + MAP02_TO_FINAL_YAW),
+        math.cos(yaw + MAP02_TO_FINAL_YAW),
+    )
+    return (name, final_x, final_y, final_yaw)
+
 
 def build_route(config):
-    """Use MAP-02 inspect poses; leave each aisle via its entry before changing zones."""
+    """Transform MAP-02 poses into the current Final SLAM map frame."""
     racks = {r['rack_id']: r for r in config['racks']}
     ids = config['patrol_routes']['robot11']
     if len(ids) != 28 or len(set(ids)) != 28:
         raise ValueError('Expected 28 distinct robot11 racks')
+
     def pose(name, data):
         values = tuple(float(data[k]) for k in ('x', 'y', 'yaw'))
         if not all(math.isfinite(v) for v in values):
             raise ValueError(f'Invalid pose: {name}')
-        return (name, *values)
-    route = [('dock_midpoint', .270, 2.625, -math.pi/2),
-             ('z2_z3_midpoint', 1.400, 2.800, 0.0)]
+        return final_pose(name, *values)
+
+    route = [
+        final_pose('dock_midpoint', .270, 2.625, -math.pi / 2),
+        final_pose('z2_z3_midpoint', 1.400, 2.800, 0.0),
+    ]
     for zone in ('Z1', 'Z2'):
         entry = config['zones'][zone]['entry_pose']
         route.append(pose(zone + '_entry', entry))
@@ -31,15 +58,20 @@ def build_route(config):
             raise ValueError(f'Expected 14 racks in {zone}')
         route.extend(pose(rid, racks[rid]['inspect_pose']) for rid in zone_ids)
         route.append(pose(zone + '_exit', dict(entry, yaw=math.pi)))
-    route.extend([('return_z2_z3_midpoint', 1.400, 2.800, math.pi),
-                  ('return_dock_midpoint', .270, 2.625, math.pi/2)])
+    route.extend([
+        final_pose('return_z2_z3_midpoint', 1.400, 2.800, math.pi),
+        final_pose('return_dock_midpoint', .270, 2.625, math.pi / 2),
+    ])
     return route
 
 
 def pose_matches(actual, target):
-    """Distinct 21cm-spaced rack stops; camera heading within MAP-02's 3 degrees."""
-    dx, dy = actual[0]-target[0], actual[1]-target[1]
-    angle = math.atan2(math.sin(actual[2]-target[2]), math.cos(actual[2]-target[2]))
+    """Distinct 21cm-spaced rack stops; camera heading within 3 degrees."""
+    dx, dy = actual[0] - target[0], actual[1] - target[1]
+    angle = math.atan2(
+        math.sin(actual[2] - target[2]),
+        math.cos(actual[2] - target[2]),
+    )
     return math.hypot(dx, dy) <= 0.08 and abs(angle) <= math.radians(3)
 
 
@@ -90,7 +122,6 @@ def main():
     from tf2_ros import Buffer, TransformListener, TransformException
     from rclpy.qos import qos_profile_sensor_data
 
-    # Avoid two copies on the same host; does not lock other clients/hosts.
     lock = open(f'/tmp/idc_robot11_route_{os.getuid()}.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -105,15 +136,21 @@ def main():
 
     previous = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-    node = rclpy.create_node('agv_route_client', namespace='/robot11', cli_args=['--ros-args', '-r', '/tf:=/robot11/tf', '-r', '/tf_static:=/robot11/tf_static'])
+    node = rclpy.create_node(
+        'agv_route_client',
+        namespace='/robot11',
+        cli_args=['--ros-args', '-r', '/tf:=/robot11/tf', '-r', '/tf_static:=/robot11/tf_static'],
+    )
     client = ActionClient(node, NavigateToPose, 'navigate_to_pose')
     dock_client = ActionClient(node, Dock, 'dock')
     buffer = Buffer()
     listener = TransformListener(buffer, node)
     dock_state = None
+
     def on_dock(msg):
         nonlocal dock_state
         dock_state = msg.is_docked
+
     dock_subscription = node.create_subscription(DockStatus, 'dock_status', on_dock, qos_profile_sensor_data)
     handle = None
     result = None
@@ -154,13 +191,11 @@ def main():
         node.get_logger().info(f'GO {name}: ({x}, {y}, {yaw})')
         success = perform(client, goal, args.goal_timeout)
         if success and name.startswith('R'):
-            # Nav2's default goal tolerance may exceed the distance between racks.
-            # Never count such an arrival as a completed rack stop.
             try:
                 tf = buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
                 age = (node.get_clock().now() - rclpy.time.Time.from_msg(tf.header.stamp)).nanoseconds / 1e9
                 t, q = tf.transform.translation, tf.transform.rotation
-                heading = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+                heading = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
                 success = -0.5 <= age <= 2.0 and pose_matches((t.x, t.y, heading), (x, y, yaw))
             except TransformException:
                 success = False
@@ -176,7 +211,6 @@ def main():
             return False
         handle, result = None, None
         pending = action_client.send_goal_async(goal)
-        # Resolve acceptance even after Ctrl+C, so a late accepted goal is cancelled.
         if not wait(pending, 15.0, interruptible=False):
             node.get_logger().error('Goal acceptance unknown. Use physical stop; do not restart yet.')
             return False
@@ -196,12 +230,6 @@ def main():
 
     def inspect(rack_id):
         node.get_logger().info(f'INSPECT PLACEHOLDER {rack_id}: aligned; waiting {args.dwell}s')
-        # TODO: 여기다가 카메라 촬영 / 도어 상태 / LED 판정 코드를 넣을 예정.
-        # TODO: rack_id로 결과를 연결하고 판정 실패 시 False를 반환할 것.
-        # camera.capture(rack_id)
-        # door_result = detect_door(...)
-        # led_result = detect_led(...)
-        # 현재는 실제 판정/정상 판정/이벤트 보고를 수행하지 않는다.
         deadline = time.monotonic() + args.dwell
         while rclpy.ok() and not stopped and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -212,8 +240,6 @@ def main():
         return perform(dock_client, Dock.Goal(), args.dock_timeout, require_docked=True)
 
     try:
-        # Start immediately after undocking near the real dock, with localisation aligned.
-        # Capture this free-space pose instead of navigating into charging contacts.
         deadline = time.monotonic() + 20.0
         start = None
         while rclpy.ok() and not stopped and time.monotonic() < deadline:
@@ -227,10 +253,11 @@ def main():
                 continue
             t, q = transform.transform.translation, transform.transform.rotation
             dock_pose = config['docks']['robot11']
-            if math.hypot(t.x-dock_pose['x'], t.y-dock_pose['y']) > 0.8:
+            _, dock_x, dock_y, _ = final_pose('robot11_dock', dock_pose['x'], dock_pose['y'], dock_pose['yaw'])
+            if math.hypot(t.x - dock_x, t.y - dock_y) > 0.8:
                 node.get_logger().error('Start must be near robot11 dock (within 0.8m). No motion sent.')
                 return 1
-            yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
             start = ('return_start', t.x, t.y, yaw)
             break
         if start is None:
