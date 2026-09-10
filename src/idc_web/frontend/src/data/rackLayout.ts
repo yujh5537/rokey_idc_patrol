@@ -11,10 +11,8 @@ export interface RackLayoutRow {
   screenRotateDeg: number;
 }
 
-const TESTBED_LENGTH_MM = 5700;
+const TESTBED_LENGTH_MM = 5600;
 const TESTBED_WIDTH_MM = 3500;
-const RACK_THICKNESS_MM = 85;
-const R08_R49_LEFT_SHIFT_MM = RACK_THICKNESS_MM * 3;
 
 function toFiniteNumber(value: string, field: string, row: number) {
   const parsed = Number(value);
@@ -64,35 +62,24 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
       throw new Error(`Invalid or duplicate rack_id ${cells[0]}`);
     }
 
-    const baseScreenXFrac = (TESTBED_LENGTH_MM - yMm) / TESTBED_LENGTH_MM;
-    const baseScreenYFrac = (TESTBED_WIDTH_MM - xMm) / TESTBED_WIDTH_MM;
+    // The web renders the portrait ROS map after a 90-degree-left rotation.
+    // x on screen follows decreasing map-y, y on screen follows decreasing map-x.
+    const screenXFrac = (TESTBED_LENGTH_MM - yMm) / TESTBED_LENGTH_MM;
+    const screenYFrac = (TESTBED_WIDTH_MM - xMm) / TESTBED_WIDTH_MM;
 
     if (
-      baseScreenXFrac < 0 || baseScreenXFrac > 1 ||
-      baseScreenYFrac < 0 || baseScreenYFrac > 1
+      screenXFrac < 0 || screenXFrac > 1 ||
+      screenYFrac < 0 || screenYFrac > 1
     ) {
       throw new Error(`Rack ${arucoId} transformed screen fractions must be within 0..1`);
     }
 
     const tolerance = 0.002;
     if (
-      Math.abs(baseScreenXFrac - csvXFrac) > tolerance ||
-      Math.abs(baseScreenYFrac - csvYFrac) > tolerance
+      Math.abs(screenXFrac - csvXFrac) > tolerance ||
+      Math.abs(screenYFrac - csvYFrac) > tolerance
     ) {
       throw new Error(`Rack ${arucoId} generalized fractions do not match the 90deg-left map transform`);
-    }
-
-    // Final approved display correction: vertical flip.
-    const displayXMm = TESTBED_WIDTH_MM - xMm;
-    const displayScreenYFrac = 1 - baseScreenYFrac;
-
-    // Final approved display correction: R08..R49 move left by 3 rack-thickness cells.
-    const leftShiftMm = arucoId >= 8 && arucoId <= 49 ? R08_R49_LEFT_SHIFT_MM : 0;
-    const displayYMm = yMm + leftShiftMm;
-    const displayScreenXFrac = baseScreenXFrac - leftShiftMm / TESTBED_LENGTH_MM;
-
-    if (displayScreenXFrac < 0 || displayScreenXFrac > 1) {
-      throw new Error(`Rack ${arucoId} shifted screen X must be within 0..1`);
     }
 
     seen.add(arucoId);
@@ -100,11 +87,11 @@ function parseRackLayout(csv: string): RackLayoutRow[] {
     return {
       rackId: `R${String(arucoId).padStart(2, '0')}`,
       arucoId,
-      xM: displayXMm / 1000,
-      yM: displayYMm / 1000,
+      xM: xMm / 1000,
+      yM: yMm / 1000,
       yawRad: yawDeg * Math.PI / 180,
-      screenXFrac: displayScreenXFrac,
-      screenYFrac: displayScreenYFrac,
+      screenXFrac,
+      screenYFrac,
       screenRotateDeg: normalizeDeg(csvRotateDeg),
     };
   });
