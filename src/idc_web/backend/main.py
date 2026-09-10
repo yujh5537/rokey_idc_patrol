@@ -11,6 +11,7 @@ from backend.database import check_database_connection, get_db
 from backend.models import Event, Robot
 from backend.mqtt_consumer import MqttTelemetryConsumer
 from backend.map_api import router as map_router
+from backend.seed_layout import seed_static_layout
 from backend.ws_api import router as ws_router
 
 
@@ -21,6 +22,10 @@ mqtt_telemetry_consumer = MqttTelemetryConsumer()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # MQTT SecurityEvent가 racks/zones FK를 안전하게 기록할 수 있도록
+    # 현재 MAP-02 SoT를 먼저 DB에 동기화한다.
+    seed_static_layout()
+
     # FastAPI가 시작될 때 MQTT consumer를 시작한다.
     mqtt_telemetry_consumer.start()
     try:
@@ -186,6 +191,7 @@ def root():
         "service": "idc_server",
         "status": "running",
     }
+
 
 # 별도 파일에 정의한 map API와 WebSocket API를 이 FastAPI app에 연결한다.
 app.include_router(map_router)
