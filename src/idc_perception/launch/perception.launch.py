@@ -9,6 +9,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -17,14 +18,20 @@ def generate_launch_description():
     ns = LaunchConfiguration("namespace")
     model = LaunchConfiguration("model_path")
     device = LaunchConfiguration("device")
-    imgsz = LaunchConfiguration("imgsz")
+    # launch 인자는 문자열이다. int 로 선언한 파라미터에 그대로 넘기면
+    # InvalidParameterTypeException 으로 노드가 기동 실패한다 — 명시 캐스팅.
+    imgsz = ParameterValue(LaunchConfiguration("imgsz"), value_type=int)
+    image_width = ParameterValue(LaunchConfiguration("image_width"), value_type=int)
     use_republish = LaunchConfiguration("use_republish")
 
     return LaunchDescription([
         DeclareLaunchArgument("namespace", description="robot5 | robot11"),
         DeclareLaunchArgument("model_path", description="YOLO .pt 절대 경로 (레포 밖)"),
-        DeclareLaunchArgument("device", default_value="cpu"),
+        DeclareLaunchArgument("device", default_value="0",
+                              description="CUDA 디바이스 인덱스. GPU 없으면 cpu"),
         DeclareLaunchArgument("imgsz", default_value="640"),
+        DeclareLaunchArgument("image_width", default_value="704",
+                              description="camera_info 수신 전 폴백 폭. 실측 OAK-D=704"),
         DeclareLaunchArgument("use_republish", default_value="true",
                               description="compressed→raw 변환 노드 포함 여부 (INF-04 republish가 이미 돌면 false)"),
 
@@ -43,5 +50,6 @@ def generate_launch_description():
              parameters=[params], respawn=True, respawn_delay=2.0, output="screen"),
 
         Node(package="idc_perception", executable="perception_node", name="perception_node", namespace=ns,
-             parameters=[params], respawn=True, respawn_delay=2.0, output="screen"),
+             parameters=[params, {"image_width": image_width}],
+             respawn=True, respawn_delay=2.0, output="screen"),
     ])

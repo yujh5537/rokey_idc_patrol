@@ -19,7 +19,9 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
+from rclpy.qos import qos_profile_sensor_data
 from ament_index_python.packages import get_package_share_directory
+from sensor_msgs.msg import CameraInfo
 from vision_msgs.msg import Detection2DArray
 from idc_msgs.msg import ObjectArray, Object, MissionState
 
@@ -49,7 +51,7 @@ class PerceptionNode(Node):
         ns = self.get_namespace().strip("/")                       # "robot5"
         self.declare_parameter("robot_id", ns if ns else "robot5")
         self.declare_parameter("racks_yaml", "")                    # 비우면 idc_bringup/config/racks.yaml
-        self.declare_parameter("image_width", 640)                  # cx = width/2
+        self.declare_parameter("image_width", 704)                  # camera_info 수신 전 폴백. cx = width/2
         self.declare_parameter("sync_tol_sec", 0.15)                # 마커·도어 프레임 짝짓기 허용 오차
         self.declare_parameter("yolo_timeout_sec", 1.0)             # 이 시간 넘게 detections 미수신 → DEGRADED_YOLO
         self.declare_parameter("publish_without_door", True)        # 도어 0개 프레임도 발행(door_state="")
@@ -59,6 +61,7 @@ class PerceptionNode(Node):
             get_package_share_directory("idc_bringup"), "config", "racks.yaml")
         self.by_aruco, self.zone_of = load_racks(path)
         self.cx = float(self.get_parameter("image_width").value) / 2.0
+        self.cx_from_camera_info = False     # camera_info 를 받으면 그 값이 이긴다
         self.sync_tol = Duration(seconds=float(self.get_parameter("sync_tol_sec").value))
         self.yolo_timeout = float(self.get_parameter("yolo_timeout_sec").value)
         self.pub_no_door = bool(self.get_parameter("publish_without_door").value)
@@ -70,6 +73,8 @@ class PerceptionNode(Node):
         self.yolo_degraded = False
         self.stat = {"pub": 0, "no_rack": 0, "door": 0}
 
+        self.create_subscription(CameraInfo, "oakd/rgb/camera_info", self.on_cam_info,
+                                 qos_profile_sensor_data)
         self.create_subscription(MissionState, "mission/state", self.on_state, 10)
         self.create_subscription(Detection2DArray, "perception/markers", self.on_markers, 10)
         self.create_subscription(Detection2DArray, "perception/detections", self.on_detections, 10)
@@ -79,6 +84,20 @@ class PerceptionNode(Node):
             f"perception_node up: robot={self.robot_id} racks={len(self.by_aruco)} cx={self.cx} yaml={path}")
 
     # ---------- 입력 ----------
+    def on_cam_info(self, m: CameraInfo):
+        """실제 카메라 폭으로 중앙선을 맞춘다. 704 카메라에 640 을 쓰면 cx 가 32px 틀어져
+        랙 피치가 화면에서 100px 남짓일 때 이웃 랙을 중앙으로 오인한다 (현장 확인 9/10)."""
+        if not m.width:
+            return
+        cx = float(m.width) / 2.0
+        if not self.cx_from_camera_info or abs(cx - self.cx) > 0.5:
+            if abs(cx - self.cx) > 0.5:
+                self.get_logger().info(
+                    f"camera_info width={m.width} → cx {self.cx:.1f} → {cx:.1f} 로 갱신"
+                    + ("" if self.cx_from_camera_info else " (image_width 파라미터 폴백 대체)"))
+            self.cx = cx
+            self.cx_from_camera_info = True
+
     def on_state(self, m: MissionState):
         if m.state != self.state or m.expected_rack_id != self.expected:
             self.get_logger().info(f"state {self.state}→{m.state} expected={m.expected_rack_id!r}")
