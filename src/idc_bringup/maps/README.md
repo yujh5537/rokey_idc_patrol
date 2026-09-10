@@ -32,7 +32,7 @@
 
 ### col 1 점검 pose 클램프 (`oblique: true`)
 col 1 랙(R01·R08·R15·R22·R29·R36·R43·R50)은 실물이 오른쪽 벽에 붙어 있어 랙 x 중심(3.395)에는
-TB4(반경 0.171m)가 설 수 없습니다. `inspect_pose.x`를 `MAX_INSPECT_X = 3.50 − 0.171 − 0.05 = 3.279`로
+TB4(반경 0.171m)가 설 수 없습니다. `inspect_pose.x`를 `MAX_INSPECT_X = 3.50 − 0.171 − 0.10 = 3.229`로
 클램프하고 yaw를 `atan2(도어중심 − pose)`로 도어 중심 지향(±1.3072 rad ≈ ±74.9°)으로 계산합니다.
 - 카메라 광축은 여전히 도어 중심을 통과 — AC는 "카메라 광축이 도어 중심 ±3°" (v7 #55)
 - 시선각 15.1° 비스듬, 도어까지 0.637m (수직일 때 0.615m). ArUco 판독 한계(60°) 대비 여유 충분
@@ -74,3 +74,10 @@ ros2 topic pub --once /robot11/initialpose geometry_msgs/PoseWithCovarianceStamp
   (실물 3.495). `MAX_INSPECT_X = 3.229`는 이를 반영한 값으로, col 1 pose의 costmap 마진은
   res 0.05에서 0.050m · res 0.025에서 0.075m입니다. 기본은 **res 0.05**, 0.025 판은 AMCL 수렴이 나쁠 때 교체용.
 - `initialpose` yaw π = quaternion `z=1.0, w=0.0`.
+
+## 역할 (시나리오 v1 정본 기준)
+- 본 정적 지도는 **AMCL·Nav2 개발·좌표 검증·회귀 테스트용 reference**이며, S2 단독 실행(SDD 9장)·백업 A용이다.
+  시연의 최종 지도는 S1(teleop 매핑 → PC3 실시간 병합 → merged.pgm)이다. 자동 탐사는 BRD 2.2에서 제외됨.
+- `inspect_pose`·`patrol_routes`는 MAP-02 실측 기준 **seed/reference**이며, 최종 확인 좌표는 NAV-03 patrol_plan이 산출한다.
+- **racks.yaml = 랙·존·도크의 단일 정본(SoT).** SDD 4.2.6의 zones.yaml은 본 파일에서 파생하며, 빈 placeholder는 삭제한다.
+- 확정값(2026-09-10 PM): 테스트베드 3.50×5.60m, 랙 폭·피치 0.21m, **위쪽 도크 = robot11(Z1·Z2)** / 아래쪽 = robot5(Z3·Z4), R01 = 오른쪽 벽 쪽(TB-03 부착 일치 확인).

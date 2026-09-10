@@ -3,7 +3,7 @@
 <package format="3">
   <name>idc_bringup</name>
   <version>0.1.0</version>
-  <description>통합 launch/config — nav2_robot.yaml, explore.yaml, super_client.xml, zones.yaml (R1 주관, INF-07)</description>
+  <description>통합 launch/config — nav2_robot.yaml, explore.yaml, super_client.xml, racks.yaml (R1 주관, INF-07)</description>
   <maintainer email="yujh5537@users.noreply.github.com">yujh5537</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
