@@ -31,3 +31,4 @@ secrets*/
 
 # TypeScript build cache
 *.tsbuildinfo
+models/
