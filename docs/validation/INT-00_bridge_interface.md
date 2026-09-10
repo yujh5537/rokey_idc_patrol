@@ -89,6 +89,17 @@ robot5  = (0.27, 0.330, 3.1416)
 
 Robot live pose and rack coordinates are both rendered through the same ROS `map`-frame transform when a real PGM/YAML map is loaded. Display-only offsets are not permitted in the real-map path.
 
+### Pose freshness rule
+
+The frozen pose stream is 2 Hz. A robot pose is treated as **live only while an actual pose MQTT sample has reached the PC4 backend within the last 3 seconds**.
+
+- Backend restart does not make persisted DB x/y/yaw live again.
+- If pose MQTT stops for more than 3 seconds, WebSocket stops advertising that DB coordinate as live.
+- React expires its live marker after the same 3-second window and renders the MAP-02 dock/AMCL initial pose with `DOCK POSE · NO LIVE DATA` / `DOCK FALLBACK` status.
+- Starting PC3 bridge and receiving a new pose switches the marker back to live automatically.
+
+This prevents a stopped bridge or old DB row from being displayed as a current robot location.
+
 ## 3. Implemented integration state
 
 ### PC3 bridge
@@ -113,13 +124,17 @@ Robot live pose and rack coordinates are both rendered through the same ROS `map
 - keeps DB `severity` and `status` NULL because the current ROS event does not provide them
 - deduplicates at-least-once event replay using robot/type/rack/source timestamp
 - `/api/v1/events` exposes persisted events
-- `/api/v1/ws` sends `robot_pose` and new `event_new` messages
+- `/api/v1/ws` sends new `event_new` messages
+- `/api/v1/ws` sends `robot_pose` only while actual pose MQTT has been received within the 3-second freshness window
 
 ### React
 
-- initial robots: `/api/v1/robots`
+- initial robot status: `/api/v1/robots`
+- robot status freshness is refreshed from REST once per second
 - initial events: `/api/v1/events`
 - live robot positions: WebSocket `robot_pose`
+- live pose expires after 3 seconds without a new pose message
+- stale/no-live pose uses the MAP-02 dock fallback instead of persisted DB coordinates
 - live security events: WebSocket `event_new`
 - event marker is attached to the matching MAP-02 `rack_id`
 - no fake severity is added when the backend event has none
@@ -192,7 +207,8 @@ Then frontend:
 
 ```bash
 cd ~/collaboration/rokey_idc_patrol/src/idc_web/frontend
-npm install
+npm ci
+npm run build
 npm run dev
 ```
 
@@ -276,6 +292,12 @@ ros2 topic echo /robot5/battery_state --once
 ros2 topic echo /robot11/battery_state --once
 ```
 
+### 5.6 Pose stale/recovery acceptance
+
+With PC3 bridge stopped, wait at least 3 seconds. React must show both robots at their MAP-02 dock fallback positions and must not show old DB x/y/yaw as live.
+
+Start the relevant PC3 bridge and confirm a new `idc/{robot}/pose` reaches PC4. The corresponding React marker must switch to live automatically. Stop that bridge again; after 3 seconds the marker must return to dock fallback.
+
 ## 6. PASS criteria
 
 INT-00 is PASS only when all of the following are captured from the deployment PCs:
@@ -286,9 +308,10 @@ INT-00 is PASS only when all of the following are captured from the deployment P
 4. The same E5 is persisted in PostgreSQL and returned by `/api/v1/events` with the correct `robot_id`, `zone_id`, `rack_id`, x/y and diagnostic detail.
 5. React receives `event_new` and marks the exact rack on the MAP-02 map. No fabricated severity/evidence is displayed.
 6. Live robot5 and robot11 pose markers are rendered from MQTT/DB/WebSocket coordinates using the same map-frame conversion as rack markers.
-7. Battery and pose telemetry still work after the event-path changes.
-8. During an intentional broker interruption, an E5 remains in the PC3 outbox and is replayed after reconnect with unchanged source/receive timestamps; PC4 stores only one logical event after duplicate replay.
-9. Browser refresh does not duplicate already-loaded events.
+7. With bridge/pose input stopped for more than 3 seconds, persisted DB coordinates are not shown as live; dock fallback is shown instead. A new pose restores live mode automatically.
+8. Battery and pose telemetry still work after the event-path changes.
+9. During an intentional broker interruption, an E5 remains in the PC3 outbox and is replayed after reconnect with unchanged source/receive timestamps; PC4 stores only one logical event after duplicate replay.
+10. Browser refresh does not duplicate already-loaded events.
 
 ## 7. Explicitly out of scope for this INT-00 baseline
 
