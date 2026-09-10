@@ -218,7 +218,7 @@ class PatrolPlanner(Node):
 
         normal = self.get_normal_pose(rack_id)
 
-        # 벽쪽 oblique rack은 일반 verify offset을 적용하지 않는다.
+        # 벽쪽 oblique rack은 일반 marker_check offset을 적용하지 않는다.
         # NAV-08 실측값 확정 후 별도 pose를 정의한다.
         if normal['oblique']:
             raise ValueError(
