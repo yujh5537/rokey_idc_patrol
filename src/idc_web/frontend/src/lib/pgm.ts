@@ -8,6 +8,15 @@ export interface PgmImage {
   maxValue: number;
 }
 
+interface CurrentMapDescriptor {
+  map_id?: string;
+  yaml_file?: string;
+  image_file?: string;
+  yaml_url?: string;
+  image_url?: string;
+  updated_at?: string;
+}
+
 function isWhitespace(byte: number) {
   return byte === 9 || byte === 10 || byte === 11 || byte === 12 || byte === 13 || byte === 32;
 }
@@ -97,22 +106,61 @@ export function parseMapYaml(text: string): Partial<MapMeta> {
   return result;
 }
 
-export async function loadSlamMap(base = '/maps/map') {
+async function loadSlamMapFiles(imageUrl: string, yamlUrl: string) {
   const [pgmResponse, yamlResponse] = await Promise.all([
-    fetch(`${base}.pgm`),
-    fetch(`${base}.yaml`),
+    fetch(imageUrl),
+    fetch(yamlUrl),
   ]);
-  if (!pgmResponse.ok || !yamlResponse.ok) throw new Error('SLAM map files are not available yet.');
+
+  if (!pgmResponse.ok || !yamlResponse.ok) {
+    throw new Error('SLAM map files are not available yet.');
+  }
 
   const image = parsePgm(await pgmResponse.arrayBuffer());
   const parsedMeta = parseMapYaml(await yamlResponse.text());
   const meta: MapMeta = {
     resolution: parsedMeta.resolution ?? 0.05,
-    origin: parsedMeta.origin ?? [-4, -4, 0],
+    origin: parsedMeta.origin ?? [-0.5, -0.5, 0],
     negate: parsedMeta.negate ?? 0,
     occupiedThresh: parsedMeta.occupiedThresh ?? 0.65,
-    freeThresh: parsedMeta.freeThresh ?? 0.196,
+    freeThresh: parsedMeta.freeThresh ?? 0.25,
   };
 
   return { image, meta };
+}
+
+export async function loadSlamMap(base = '/maps/map') {
+  return loadSlamMapFiles(`${base}.pgm`, `${base}.yaml`);
+}
+
+export async function loadCurrentSlamMap() {
+  const response = await fetch('/api/v1/map');
+  if (!response.ok) {
+    throw new Error(`current map API returned ${response.status}`);
+  }
+
+  const descriptor = await response.json() as CurrentMapDescriptor;
+  if (
+    typeof descriptor.image_url !== 'string'
+    || !descriptor.image_url.startsWith('/api/v1/map/')
+    || typeof descriptor.yaml_url !== 'string'
+    || !descriptor.yaml_url.startsWith('/api/v1/map/')
+  ) {
+    throw new Error('current map API returned invalid map URLs');
+  }
+
+  const loaded = await loadSlamMapFiles(
+    descriptor.image_url,
+    descriptor.yaml_url,
+  );
+
+  return {
+    ...loaded,
+    mapName: typeof descriptor.image_file === 'string'
+      ? descriptor.image_file
+      : 'merged.pgm',
+    updatedAt: typeof descriptor.updated_at === 'string'
+      ? descriptor.updated_at
+      : undefined,
+  };
 }
