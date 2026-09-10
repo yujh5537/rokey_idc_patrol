@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { rackLayout } from '../data/rackLayout';
-import type { Rack, Robot } from '../data/mock';
+import { robots as robotDockSeeds, type Rack, type Robot } from '../data/mock';
 import { DEMO_MAP_SIZE, TESTBED_RENDER_SPEC } from '../data/testbed';
 import type { MapMeta } from '../lib/coordinates';
 import type { PgmImage } from '../lib/pgm';
@@ -10,8 +9,16 @@ export interface SecurityEvent {
   type: 'E5' | 'E7';
   label: string;
   rackId: string;
-  severity: 2 | 3;
+  severity?: 2 | 3;
   time: string;
+  robotId?: string;
+  zoneId?: string;
+  x?: number;
+  y?: number;
+  basis?: string;
+  openRatio?: number | null;
+  frames?: number;
+  markerChecked?: boolean;
 }
 
 interface Props {
@@ -28,8 +35,6 @@ interface SurfaceSize {
   height: number;
 }
 
-const rackLayoutById = new Map(rackLayout.map((rack) => [rack.rackId, rack]));
-
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
@@ -38,7 +43,7 @@ function occupancyColor(value: number, maxValue: number, meta: MapMeta) {
   const normalized = Math.max(0, Math.min(1, value / maxValue));
   const occupancy = (meta.negate ?? 0) === 0 ? 1 - normalized : normalized;
   const occupied = meta.occupiedThresh ?? 0.65;
-  const free = meta.freeThresh ?? 0.196;
+  const free = meta.freeThresh ?? 0.25;
 
   if (occupancy > occupied) return '#075b70';
   if (occupancy < free) return '#04141f';
@@ -68,10 +73,6 @@ function paintDemo(ctx: CanvasRenderingContext2D, width: number, height: number)
       ctx.fillRect(width * ratioX, height * ratioY, width * 0.018, height * 0.065);
     }
   });
-
-  ctx.fillStyle = '#102c37';
-  ctx.fillRect(0, 0, width, height * 0.035);
-  ctx.fillRect(0, height * 0.965, width, height * 0.035);
 }
 
 function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: MapMeta) {
@@ -93,7 +94,6 @@ function paintMap(canvas: HTMLCanvasElement, map: PgmImage | undefined, meta: Ma
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, outputWidth, outputHeight);
 
@@ -148,7 +148,6 @@ function rackPalette(state: Rack['state']) {
       label: '#ffd0d9',
     };
   }
-
   if (state === 'LED_RED') {
     return {
       border: '#ffae52',
@@ -158,7 +157,6 @@ function rackPalette(state: Rack['state']) {
       label: '#ffe1b0',
     };
   }
-
   return {
     border: 'rgba(83,163,186,.58)',
     background: 'rgba(3,21,31,.9)',
@@ -168,11 +166,14 @@ function rackPalette(state: Rack['state']) {
   };
 }
 
-function containedSurfaceSize(containerWidth: number, containerHeight: number): SurfaceSize {
+function containedSurfaceSize(
+  containerWidth: number,
+  containerHeight: number,
+  aspect: number,
+): SurfaceSize {
   const gutter = 24;
   const availableWidth = Math.max(0, containerWidth - gutter);
   const availableHeight = Math.max(0, containerHeight - gutter);
-  const aspect = TESTBED_RENDER_SPEC.aspectRatio;
 
   if (availableWidth === 0 || availableHeight === 0) return { width: 0, height: 0 };
 
@@ -219,32 +220,20 @@ function rackScreenPosition(
   sourceHeight: number,
   rotatePortrait: boolean,
 ) {
-  const layout = rackLayoutById.get(rack.id);
-
-  if (map && rotatePortrait && layout) {
-    const mapWidthM = sourceWidth * meta.resolution;
-    const mapHeightM = sourceHeight * meta.resolution;
-    const testbedWidthM = TESTBED_RENDER_SPEC.widthMm / 1000;
-    const testbedLengthM = TESTBED_RENDER_SPEC.lengthMm / 1000;
-    const padXM = Math.max(0, (mapWidthM - testbedWidthM) / 2);
-    const padYM = Math.max(0, (mapHeightM - testbedLengthM) / 2);
-
-    const sourceXFrac = clamp01((layout.xM + padXM) / mapWidthM);
-    const sourceYFrac = clamp01(1 - (layout.yM + padYM) / mapHeightM);
-
-    return {
-      left: `${sourceYFrac * 100}%`,
-      top: `${(1 - sourceXFrac) * 100}%`,
-    };
+  // With a real PGM/YAML pair, rack and robot overlays use the exact same ROS
+  // map-frame transform. No display-only offset is applied.
+  if (map) {
+    return worldToDisplayPercent(
+      rack.x,
+      rack.y,
+      meta,
+      sourceWidth,
+      sourceHeight,
+      rotatePortrait,
+    );
   }
 
-  if (layout) {
-    return {
-      left: `${layout.screenXFrac * 100}%`,
-      top: `${layout.screenYFrac * 100}%`,
-    };
-  }
-
+  // The generalized fractions exist only for the synthetic demo canvas.
   if (rack.screenXFrac !== undefined && rack.screenYFrac !== undefined) {
     return {
       left: `${rack.screenXFrac * 100}%`,
@@ -252,7 +241,7 @@ function rackScreenPosition(
     };
   }
 
-  return worldToDisplayPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight, rotatePortrait);
+  return worldToDisplayPercent(rack.x, rack.y, meta, sourceWidth, sourceHeight, false);
 }
 
 export default function MapView({ map, meta, mapName, robots, racks, events }: Props) {
@@ -263,6 +252,9 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
   const sourceWidth = map?.width ?? DEMO_MAP_SIZE.width;
   const sourceHeight = map?.height ?? DEMO_MAP_SIZE.height;
   const rotatePortrait = Boolean(map && map.height > map.width);
+  const renderAspect = map
+    ? (rotatePortrait ? map.height / map.width : map.width / map.height)
+    : TESTBED_RENDER_SPEC.aspectRatio;
 
   useEffect(() => {
     if (canvasRef.current) paintMap(canvasRef.current, map, meta);
@@ -273,69 +265,41 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     if (!element) return undefined;
 
     const updateSize = () => {
-      setSurfaceSize(containedSurfaceSize(element.clientWidth, element.clientHeight));
+      setSurfaceSize(containedSurfaceSize(
+        element.clientWidth,
+        element.clientHeight,
+        renderAspect,
+      ));
     };
 
     updateSize();
     const observer = new ResizeObserver(updateSize);
     observer.observe(element);
-
     return () => observer.disconnect();
-  }, []);
+  }, [renderAspect]);
 
   const rackMarkers = useMemo(() => racks.map((rack) => ({
     rack,
     pos: rackScreenPosition(rack, map, meta, sourceWidth, sourceHeight, rotatePortrait),
   })), [racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
-  const robotMarkers = useMemo(() => {
-    const robot5 = robots.find((robot) => robot.id === 'robot5');
-    const robot11 = robots.find((robot) => robot.id === 'robot11');
+  const robotMarkers = useMemo(() => robotDockSeeds.map((seed) => {
+    const liveRobot = robots.find((robot) => robot.id === seed.id);
+    const robot = liveRobot ?? seed;
 
-    return [
-      ...(robot5 ? [{
-        robot: robot5,
-        live: true,
-        pos: worldToDisplayPercent(
-          robot5.x,
-          robot5.y,
-          meta,
-          sourceWidth,
-          sourceHeight,
-          rotatePortrait,
-        ),
-      }] : []),
-
-      ...(robot11 ? [{
-        robot: robot11,
-        live: true,
-        pos: worldToDisplayPercent(
-          robot11.x,
-          robot11.y,
-          meta,
-          sourceWidth,
-          sourceHeight,
-          rotatePortrait,
-        ),
-      }] : [{
-        robot: {
-          id: 'robot11' as const,
-          label: 'AMR 11',
-          state: 'IDLE' as const,
-          battery: 0,
-          x: 0,
-          y: 0,
-          yaw: 0,
-          zone: '',
-        },
-        live: false,
-        pos: {
-          left: '82%',
-          top: '15%',
-        },
-      }]),
-    ];
-  }, [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
+    return {
+      robot,
+      live: Boolean(liveRobot),
+      pos: worldToDisplayPercent(
+        robot.x,
+        robot.y,
+        meta,
+        sourceWidth,
+        sourceHeight,
+        rotatePortrait,
+      ),
+    };
+  }), [robots, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
   const eventMarkers = useMemo(() => events.flatMap((event) => {
     const rack = racks.find((item) => item.id === event.rackId);
@@ -346,9 +310,13 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
     }];
   }), [events, racks, map, meta, sourceWidth, sourceHeight, rotatePortrait]);
 
-  const amrDiameterPx = surfaceSize.width * TESTBED_RENDER_SPEC.amrDiameterFrac;
-  const rackWidthPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackWidthFrac;
-  const rackHeightPx = surfaceSize.width * TESTBED_RENDER_SPEC.rackHeightFrac;
+  const displayWidthM = map
+    ? (rotatePortrait ? sourceHeight : sourceWidth) * meta.resolution
+    : TESTBED_RENDER_SPEC.lengthMm / 1000;
+  const pixelsPerMeter = displayWidthM > 0 ? surfaceSize.width / displayWidthM : 0;
+  const amrDiameterPx = pixelsPerMeter * (TESTBED_RENDER_SPEC.amrDiameterMm / 1000);
+  const rackWidthPx = pixelsPerMeter * (TESTBED_RENDER_SPEC.rackWidthMm / 1000);
+  const rackHeightPx = pixelsPerMeter * (TESTBED_RENDER_SPEC.rackHeightMm / 1000);
   const robotHeadingOffset = rotatePortrait ? -Math.PI / 2 : 0;
 
   return (
@@ -358,11 +326,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
         <div>{mapName}</div>
       </div>
 
-      <div
-        ref={stageRef}
-        className="map-stage"
-        style={{ display: 'grid', placeItems: 'center' }}
-      >
+      <div ref={stageRef} className="map-stage" style={{ display: 'grid', placeItems: 'center' }}>
         {surfaceSize.width > 0 && (
           <div
             style={{
@@ -457,7 +421,11 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
             })}
 
             {eventMarkers.map(({ event, pos }) => (
-              <div key={event.id} className={`event-marker l${event.severity}`} style={pos}>
+              <div
+                key={event.id}
+                className={`event-marker ${event.severity ? `l${event.severity}` : ''}`}
+                style={pos}
+              >
                 <span className="event-triangle">!</span>
                 <div><strong>{event.type}</strong><small>{event.rackId}</small></div>
               </div>
@@ -519,17 +487,14 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
                     <small>
                       {live
                         ? `${robot.state} · BAT ${robot.battery}%`
-                        : 'NO DATA · POSITION UNKNOWN'}
+                        : 'DOCK POSE · NO LIVE DATA'}
                     </small>
                   </div>
                 </div>
               );
             })}
 
-            <div
-              className="map-label"
-              style={{ left: '22px', bottom: '22px', top: 'auto' }}
-            >
+            <div className="map-label" style={{ left: '22px', bottom: '22px', top: 'auto' }}>
               SCALE LOCK · {TESTBED_RENDER_SPEC.lengthMm} × {TESTBED_RENDER_SPEC.widthMm} mm
             </div>
           </div>
@@ -539,7 +504,7 @@ export default function MapView({ map, meta, mapName, robots, racks, events }: P
       <div className="map-footer">
         <span>RES <strong>{meta.resolution} m/px</strong></span>
         <span>ORIGIN <strong>{meta.origin[0].toFixed(3)}, {meta.origin[1].toFixed(3)}</strong></span>
-        <span>CANVAS <strong>{TESTBED_RENDER_SPEC.lengthMm}:{TESTBED_RENDER_SPEC.widthMm}</strong></span>
+        <span>CANVAS <strong>{map ? `${sourceHeight}:${sourceWidth}px` : `${TESTBED_RENDER_SPEC.lengthMm}:${TESTBED_RENDER_SPEC.widthMm}`}</strong></span>
         <span>AMR <strong>Ø{TESTBED_RENDER_SPEC.amrDiameterMm}mm</strong></span>
         <span>RACK <strong>{TESTBED_RENDER_SPEC.rackWidthMm}×{TESTBED_RENDER_SPEC.rackHeightMm}mm</strong></span>
         <span>EVENTS <strong>{events.length}</strong></span>
