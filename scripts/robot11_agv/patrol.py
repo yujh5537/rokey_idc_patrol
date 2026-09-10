@@ -8,6 +8,13 @@ from pathlib import Path
 
 CONFIG = Path(__file__).resolve().parents[2] / 'src/idc_bringup/config/racks.yaml'
 
+EXPECTED_ROBOT11_ROUTE = [
+    'R07', 'R06', 'R05', 'R04', 'R03', 'R02', 'R01',
+    'R08', 'R09', 'R10', 'R11', 'R12', 'R13', 'R14',
+    'R21', 'R20', 'R19', 'R18', 'R17', 'R16', 'R15',
+    'R22', 'R23', 'R24', 'R25', 'R26', 'R27', 'R28',
+]
+
 # Exact MAP-02 loaded by:
 # $(ros2 pkg prefix idc_bringup)/share/idc_bringup/maps/idc_testbed.yaml
 EXPECTED_MAP = {
@@ -36,12 +43,12 @@ def map_matches(msg):
 def build_route(config):
     """Build the robot11 Z1/Z2 route directly in the MAP-02 map frame."""
     racks = {r['rack_id']: r for r in config['racks']}
-    ids = config['patrol_routes']['robot11']
+    ids = list(config['patrol_routes']['robot11'])
 
     if config['robot_zones']['robot11'] != ['Z1', 'Z2']:
         raise ValueError("racks.yaml must assign robot11 to ['Z1', 'Z2']")
-    if len(ids) != 28 or len(set(ids)) != 28:
-        raise ValueError('Expected 28 distinct robot11 racks')
+    if ids != EXPECTED_ROBOT11_ROUTE:
+        raise ValueError('robot11 patrol route does not match the approved Z1/Z2 order')
 
     def pose(name, data):
         values = tuple(float(data[k]) for k in ('x', 'y', 'yaw'))
@@ -49,8 +56,8 @@ def build_route(config):
             raise ValueError(f'Invalid pose: {name}')
         return (name, *values)
 
-    # robot11 dock is separated from the rack aisles by the x=0.8 wall.
-    # Go down the left dock corridor, cross the y=2.4~3.2 opening, then enter Z1.
+    # Undock near robot11 dock -> midpoint between robot11/robot5 docks
+    # -> midpoint between Z2/Z3 -> Z1 -> Z2.
     route = [
         ('dock_midpoint', 0.270, 2.625, -math.pi / 2),
         ('z2_z3_midpoint', 1.400, 2.800, 0.0),
@@ -67,8 +74,8 @@ def build_route(config):
         route.extend(pose(rid, racks[rid]['inspect_pose']) for rid in zone_ids)
         route.append(pose(zone + '_exit', dict(entry, yaw=math.pi)))
 
-    # Return through the same wall opening. The final free-space pose is captured
-    # immediately after undocking and appended at runtime before Create 3 docking.
+    # Return through the same major waypoints, then the exact undock pose is
+    # appended at runtime before Create 3 docking.
     route.extend([
         ('return_z2_z3_midpoint', 1.400, 2.800, math.pi),
         ('return_dock_midpoint', 0.270, 2.625, math.pi / 2),
@@ -412,7 +419,7 @@ def main():
 
         success = run_patrol(navigate, inspect, dock, route)
         print(
-            'PATROL COMPLETE: 28 rack stops; DOCK SUCCEEDED and is_docked=true.'
+            'PATROL COMPLETE: robot11 Z1/Z2, 28 rack stops; DOCK SUCCEEDED and is_docked=true.'
             if success else 'ROUTE INCOMPLETE.',
             flush=True,
         )
