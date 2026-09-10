@@ -76,11 +76,11 @@ class MergedMapSaver(Node):
             f'두 로봇 재도킹 완료 — 지도 저장 시작: {stem}.pgm / {stem}.yaml')
         cmd = [
             'ros2', 'run', 'nav2_map_server', 'map_saver_cli',
+            '-t', self.map_topic,        # -r map:=... 나 -r __ns:=... 는 안 먹음 (troubleshooting_log #6)
             '-f', stem,
             '--ros-args',
             '-p', f'save_map_timeout:={self.save_timeout}',
             '-p', 'map_subscribe_transient_local:=true',
-            '-r', f'map:={self.map_topic}',
         ]
         try:
             subprocess.run(cmd, check=True, timeout=self.save_timeout + 15.0)
