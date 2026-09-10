@@ -1,6 +1,12 @@
 import unittest
 import yaml
-from patrol import CONFIG, build_route, run_patrol, pose_matches
+from patrol import (
+    CONFIG,
+    EXPECTED_ROBOT11_ROUTE,
+    build_route,
+    run_patrol,
+    pose_matches,
+)
 
 
 class PatrolTests(unittest.TestCase):
@@ -11,18 +17,15 @@ class PatrolTests(unittest.TestCase):
 
     def test_robot11_assignment_and_exact_rack_order(self):
         self.assertEqual(self.config['robot_zones']['robot11'], ['Z1', 'Z2'])
+        self.assertEqual(
+            self.config['patrol_routes']['robot11'],
+            EXPECTED_ROBOT11_ROUTE,
+        )
+
         names = [p[0] for p in self.route]
         self.assertEqual(
             [n for n in names if n.startswith('R')],
-            self.config['patrol_routes']['robot11'],
-        )
-        self.assertEqual(
-            self.config['patrol_routes']['robot11'][:7],
-            ['R07', 'R06', 'R05', 'R04', 'R03', 'R02', 'R01'],
-        )
-        self.assertEqual(
-            self.config['patrol_routes']['robot11'][14:21],
-            ['R21', 'R20', 'R19', 'R18', 'R17', 'R16', 'R15'],
+            EXPECTED_ROBOT11_ROUTE,
         )
 
     def test_route_uses_map02_coordinates_directly(self):
@@ -35,6 +38,14 @@ class PatrolTests(unittest.TestCase):
         self.assertEqual(self.route[names.index('Z2_entry')][1:], (1.4, 3.5, 0.0))
         self.assertEqual(self.route[names.index('R21')][1:], (2.135, 3.5, 1.5708))
         self.assertEqual(self.route[names.index('R28')][1:], (2.135, 3.5, -1.5708))
+
+    def test_no_robot11_z3_z4_racks_in_route(self):
+        racks = {r['rack_id']: r for r in self.config['racks']}
+        patrol_racks = [p[0] for p in self.route if p[0].startswith('R')]
+        self.assertEqual(
+            {racks[rid]['zone_id'] for rid in patrol_racks},
+            {'Z1', 'Z2'},
+        )
 
     def test_zone_transition_and_return(self):
         names = [p[0] for p in self.route]
