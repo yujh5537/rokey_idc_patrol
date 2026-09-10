@@ -1,0 +1,131 @@
+# IDC rack inspection poses
+# normal_pose: 문이 닫혀 있을 때 기본 검사 위치
+# verify_x_sign:
+#   -1 = 문 열림 재확인 시 x 감소
+#   +1 = 문 열림 재확인 시 x 증가
+#
+# verify_offset / verify_yaw 값은 NAV-08 실측값 수신 후 적용
+
+inspect_hold_sec: 3.0
+patrol_order:
+  - R07
+  - R06
+  - R05
+  - R04
+  - R03
+  - R02
+  - R01
+  - R08
+  - R09
+  - R10
+  - R11
+  - R12
+  - R13
+  - R14
+verify:
+  offset_m: 0.20
+  top_yaw: 1.2755
+  bottom_yaw: -1.2755
+
+racks:
+
+  # ===== 위쪽 랙 =====
+  R07:
+    normal_pose:
+      x: 2.135
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R06:
+    normal_pose:
+      x: 2.345
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R05:
+    normal_pose:
+      x: 2.555
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R04:
+    normal_pose:
+      x: 2.765
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R03:
+    normal_pose:
+      x: 2.975
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R02:
+    normal_pose:
+      x: 3.185
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+  R01:
+    normal_pose:
+      x: 3.395
+      y: 4.900
+      yaw: 1.5708
+    verify_x_sign: -1
+
+
+  # ===== 아래쪽 랙 =====
+  R14:
+    normal_pose:
+      x: 2.135
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R13:
+    normal_pose:
+      x: 2.345
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R12:
+    normal_pose:
+      x: 2.555
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R11:
+    normal_pose:
+      x: 2.765
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R10:
+    normal_pose:
+      x: 2.975
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R09:
+    normal_pose:
+      x: 3.185
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
+
+  R08:
+    normal_pose:
+      x: 3.395
+      y: 4.900
+      yaw: -1.5708
+    verify_x_sign: 1
