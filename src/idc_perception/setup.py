@@ -27,9 +27,8 @@ setup(
     entry_points={
         'console_scripts': [
             'yolo_node = idc_perception.yolo_node:main',
-        'aruco_node = idc_perception.aruco_node:main',
-        'detection_localizer = idc_perception.detection_localizer:main',
-        'led_classifier = idc_perception.led_classifier:main'
+            'aruco_node = idc_perception.aruco_node:main',
+            'perception_node = idc_perception.perception_node:main',
         ],
     },
 )
