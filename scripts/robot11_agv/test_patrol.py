@@ -1,6 +1,6 @@
 import unittest
 import yaml
-from patrol import CONFIG, build_route, run_patrol, pose_matches
+from patrol import CONFIG, build_route, final_pose, run_patrol, pose_matches
 
 
 class PatrolTests(unittest.TestCase):
@@ -17,7 +17,8 @@ class PatrolTests(unittest.TestCase):
         self.assertEqual(names[i:i+4], ['R14', 'Z1_exit', 'Z2_entry', 'R21'])
         self.assertEqual(names[-5:], ['R28', 'Z2_exit', 'return_z2_z3_midpoint',
                                      'return_dock_midpoint', 'return_start'])
-        self.assertEqual(self.route[names.index('R01')][1:], (3.229, 4.9, 1.3072))
+        self.assertEqual(self.route[names.index('R01')][1:],
+                         final_pose('R01', 3.229, 4.9, 1.3072)[1:])
 
     def test_complete_sequence_and_one_dock(self):
         events = []
@@ -33,25 +34,30 @@ class PatrolTests(unittest.TestCase):
     def test_each_navigation_failure_blocks_later_goals_and_dock(self):
         for index in range(len(self.route)):
             calls, docks = [], []
+
             def navigate(p):
                 calls.append(p)
                 return len(calls) <= index
+
             self.assertFalse(run_patrol(navigate, lambda _: True,
-                             lambda: docks.append(True) or True, self.route))
+                                        lambda: docks.append(True) or True, self.route))
             self.assertEqual(calls, self.route[:index+1])
             self.assertEqual(docks, [])
 
     def test_interrupted_inspection_and_dock_failure(self):
         calls = []
         self.assertFalse(run_patrol(lambda p: calls.append(p[0]) or True,
-                                   lambda _: False, lambda: self.fail('dock called'), self.route))
+                                    lambda _: False, lambda: self.fail('dock called'), self.route))
         self.assertEqual(calls[-1], 'R07')
         self.assertFalse(run_patrol(lambda _: True, lambda _: True, lambda: False, self.route))
 
     def test_alignment_rejects_adjacent_rack_and_wrong_heading(self):
-        self.assertFalse(pose_matches((2.345, 4.9, 1.5708), (2.135, 4.9, 1.5708)))
-        self.assertFalse(pose_matches((2.135, 4.9, -1.5708), (2.135, 4.9, 1.5708)))
-        self.assertTrue(pose_matches((2.135, 4.9, 1.5708), (2.135, 4.9, 1.5708)))
+        r07 = final_pose('R07', 2.135, 4.9, 1.5708)
+        r06 = final_pose('R06', 2.345, 4.9, 1.5708)
+        r07_wrong_heading = final_pose('R07_wrong', 2.135, 4.9, -1.5708)
+        self.assertFalse(pose_matches(r06[1:], r07[1:]))
+        self.assertFalse(pose_matches(r07_wrong_heading[1:], r07[1:]))
+        self.assertTrue(pose_matches(r07[1:], r07[1:]))
 
 
 if __name__ == '__main__':
