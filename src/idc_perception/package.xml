@@ -13,6 +13,7 @@
   <depend>vision_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>idc_msgs</depend>
+  <exec_depend>idc_bringup</exec_depend>   <!-- racks.yaml (share/config) 런타임 조회 -->
   <exec_depend>image_transport</exec_depend>
   <exec_depend>image_transport_plugins</exec_depend>
   <test_depend>ament_copyright</test_depend>
