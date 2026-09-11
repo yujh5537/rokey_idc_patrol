@@ -36,7 +36,10 @@ models/
 # ArUco 출력 시트 (tools/make_aruco_a4.py 산출물)
 aruco_*_a4.png
 
+# 탐사·병합 지도 — IDC 보안 (CONTRIBUTING 5), 드라이브로 공유
+amr/maps/
+*.pgm
+
 # Runtime SLAM map — PC3 -> PC4 sync, Git 금지
-maps/current/*.pgm
 maps/current/*.yaml
 maps/current/*.yml
